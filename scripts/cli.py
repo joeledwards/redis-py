@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+import os
+import random
+import re
+import readline
+from redis import config
+import redis
+import sys
+import time
+
+def trim_quotes(string):
+    result = string
+    if len(string) < 1:
+        pass
+    elif string[0] == '"':
+        result = string.strip('"')
+    elif string[0] == "'":
+        result = string.strip("'")
+    return result
+
+cfg = config.from_file(config.select_config(config.find_configs()))
+
+try:
+    db = redis.Redis(host=cfg['host'], port=int(cfg['port']))
+    if cfg.has_key('auth'):
+        print db.execute_command('AUTH', cfg['auth'])
+except KeyError, ex:
+    print "Malformed config key '%s' in %s" % (str(ex), config_file)
+    sys.exit(1)
+except Exception, ex:
+    print "Could not connect to database. Details: %s" % str(ex)
+    sys.exit(1)
+
+regex = re.compile(r'''((?:[^ "']|"[^"]*"|'[^']*')+)''')
+
+running = True
+while running:
+    cmd_str = raw_input("> ")
+    cmd_str = cmd_str.strip()
+    if cmd_str == "":
+        continue
+
+    args = regex.split(cmd_str.strip())[1::2]
+    args = map(str.strip, args)
+    cmd = args[0]
+    arg_count = len(args)
+    result = ""
+
+    if cmd.startswith('.'):
+        command = cmd[1:]
+        if command == 'quit':
+            running = False
+        elif command == 'help':
+            print "Actions:"
+            print " .help - print this help message"
+            print " .hkeys <key> - list all fields associated with this key"
+            print " .keys [regex] - list all database keys matching optional regex"
+            print " .quit - exit cli"
+            print " +<key> <value> - add new database item"
+            print " ++<key> <field> <value> - add new database hash item"
+            print " -<key> <value> - remove database item"
+            print " --<key> <field> <value> - remove database hash item"
+            print " <key> - print value of this database item"
+            print " <key> <field> - print value of this database hash item"
+        elif command == 'keys':
+            if arg_count > 2:
+                result = "wrong number of arguments for command '%s'" % cmd
+            else:
+                expr = '*'
+                if arg_count > 1:
+                    expr = trim_quotes(args[1])
+                result = db.keys(expr)
+        elif command == 'hkeys':
+            if arg_count != 2:
+                result = "wrong number of arguments for command '%s'" % cmd
+            else:
+                key = trim_quotes(args[1])
+                try:
+                    result = db.hkeys(key)
+                except redis.exceptions.ResponseError:
+                    result = "key for wrong type"
+        else:
+            result = "Invalid command '%s'" % command
+    elif cmd.startswith('++') and arg_count == 3:
+        key = trim_quotes(cmd[2:])
+        field = trim_quotes(args[1])
+        value = trim_quotes(args[2])
+        result = db.hset(key, field, value)
+
+    elif cmd.startswith('+') and arg_count == 2:
+        key = trim_quotes(cmd[1:])
+        value = trim_quotes(args[1])
+        result = db.set(key, value)
+
+    elif cmd.startswith('--') and arg_count == 2:
+        key = trim_quotes(cmd[2:])
+        field = trim_quotes(args[1])
+        value = db.hget(key, field)
+        status = db.hdel(key,field)
+        result = "deleting ('%s','%s') : '%s' [%s]" % (key, field, value, status)
+
+    elif cmd.startswith('-') and arg_count == 1:
+        key = trim_quotes(cmd[1:])
+        value = db.get(key)
+        status = db.delete(key)
+        result = "deleting '%s' : '%s' [%s]" % (key, value, status)
+
+    elif arg_count == 2:
+        key = trim_quotes(cmd)
+        field = trim_quotes(args[1])
+        result = db.hget(key, field)
+
+    elif arg_count == 1:
+        key = trim_quotes(cmd)
+        try:
+            result = db.get(key)
+        except redis.exceptions.ResponseError:
+            result = "hash keys %s" % str(db.hkeys(key))
+
+    else:
+        result = "Invalid command string '%s'" % cmd_str
+
+    print result
+
