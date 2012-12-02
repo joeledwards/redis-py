@@ -5,7 +5,7 @@ import sys
 import warnings
 import time as mod_time
 from redis._compat import (b, izip, imap, iteritems, dictkeys, dictvalues,
-                           basestring, long, nativestr, urlparse)
+                           basestring, long, nativestr, urlparse, bytes)
 from redis.connection import ConnectionPool, UnixDomainSocketConnection
 from redis.exceptions import (
     ConnectionError,
@@ -24,9 +24,9 @@ def list_or_args(keys, args):
     # returns a single list combining keys and args
     try:
         iter(keys)
-        # a string can be iterated, but indicates
+        # a string or bytes instance can be iterated, but indicates
         # keys wasn't passed as a list
-        if isinstance(keys, basestring):
+        if isinstance(keys, (basestring, bytes)):
             keys = [keys]
     except TypeError:
         keys = [keys]
@@ -88,27 +88,24 @@ def parse_info(response):
 
     def get_value(value):
         if ',' not in value or '=' not in value:
-            return value
-
-        sub_dict = {}
-        for item in value.split(','):
-            k, v = item.rsplit('=', 1)
             try:
-                sub_dict[k] = int(v)
+                if '.' in value:
+                    return float(value)
+                else:
+                    return int(value)
             except ValueError:
-                sub_dict[k] = v
-        return sub_dict
+                return value
+        else:
+            sub_dict = {}
+            for item in value.split(','):
+                k, v = item.rsplit('=', 1)
+                sub_dict[k] = get_value(v)  
+            return sub_dict
 
     for line in response.splitlines():
         if line and not line.startswith('#'):
             key, value = line.split(':')
-            try:
-                if '.' in value:
-                    info[key] = float(value)
-                else:
-                    info[key] = int(value)
-            except ValueError:
-                info[key] = get_value(value)
+            info[key] = get_value(value)
     return info
 
 
@@ -433,9 +430,20 @@ class StrictRedis(object):
         "Delete all keys in the current database"
         return self.execute_command('FLUSHDB')
 
-    def info(self):
-        "Returns a dictionary containing information about the Redis server"
-        return self.execute_command('INFO')
+    def info(self, section=None):
+        """
+        Returns a dictionary containing information about the Redis server
+        
+        The ``section`` option can be used to select a specific section 
+        of information
+        
+        The section option is not supported by older versions of Redis Server,
+        and will generate ResponseError
+        """
+        if section is None:
+            return self.execute_command('INFO')
+        else:
+            return self.execute_command('INFO', section)
 
     def lastsave(self):
         """
@@ -500,10 +508,11 @@ class StrictRedis(object):
         ``start`` and ``end`` paramaters indicate which bytes to consider
         """
         params = [key]
-        if start and end:
+        if start is not None and end is not None:
             params.append(start)
             params.append(end)
-        elif (start and not end) or (end and not start):
+        elif (start is not None and end is None) or \
+                (end is not None and start is None):
             raise RedisError("Both start and end must be specified")
         return self.execute_command('BITCOUNT', *params)
 
