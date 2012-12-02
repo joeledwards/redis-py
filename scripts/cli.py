@@ -54,14 +54,14 @@ while running:
             print "Actions:"
             print " .help - print this help message"
             print " .hkeys <key> - list all fields associated with this key"
-            print " .keys [regex] - list all database keys matching optional regex"
+            print " .keys [regex] - list all keys matching optional regex"
             print " .quit - exit cli"
-            print " +<key> <value> - add new database item"
-            print " ++<key> <field> <value> - add new database hash item"
-            print " -<key> <value> - remove database item"
-            print " --<key> <field> <value> - remove database hash item"
-            print " <key> - print value of this database item"
-            print " <key> <field> - print value of this database hash item"
+            print " +<key> <value> - set entry"
+            print " ++<key> <field> <value> - set hash entry"
+            print " -<key> <value> - remove entry"
+            print " --<key> <field> <value> - remove hash entry"
+            print " <key> - print value of this entry"
+            print " <key> <field> - print value of this hash entry"
         elif command == 'keys':
             if arg_count > 2:
                 result = "wrong number of arguments for command '%s'" % cmd
@@ -108,14 +108,33 @@ while running:
     elif arg_count == 2:
         key = trim_quotes(cmd)
         field = trim_quotes(args[1])
-        result = db.hget(key, field)
+        key_type = db.type(key).lower()
+        if key_type != 'hash':
+            if key_type == "zset":
+                key_type = "sorted set"
+            result = "key '%s' represents a %s, not a hash" % key_type
+        else:
+            result = db.hget(key, field)
 
     elif arg_count == 1:
         key = trim_quotes(cmd)
-        try:
+        key_type = db.type(key).lower()
+        if key_type == "none":
+            result = "key '%s' not found" % key
+        elif key_type == "string":
             result = db.get(key)
-        except redis.exceptions.ResponseError:
+        elif key_type == "list":
+            length = db.llen(key)
+            result = "list %s" % str(db.lrange(key, 0, length - 1))
+        elif key_type == "set":
+            result = "set %s" % str(db.smembers(key))
+        elif key_type == "zset":
+            count = db.zcard(key)
+            result = "sorted set %s" % str(db.zrange(key, 0, count - 1))
+        elif key_type == "hash":
             result = "hash keys %s" % str(db.hkeys(key))
+        else:
+            result = "unrecognized type (%s) for key '%s'" % (key_type, key)
 
     else:
         result = "Invalid command string '%s'" % cmd_str
