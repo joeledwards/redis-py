@@ -55,13 +55,34 @@ while running:
             print " .help - print this help message"
             print " .hkeys <key> - list all fields associated with this key"
             print " .keys [regex] - list all keys matching optional regex"
+            print " .now - format the current time"
             print " .quit - exit cli"
+            print " .time <timestamp> - format the given timestamp"
             print " +<key> <value> - set entry"
             print " ++<key> <field> <value> - set hash entry"
             print " -<key> <value> - remove entry"
             print " --<key> <field> <value> - remove hash entry"
             print " <key> - print value of this entry"
             print " <key> <field> - print value of this hash entry"
+        elif command == 'time':
+            if arg_count != 2:
+                result = "wrong number of arguments for command '%s'" % cmd
+            else:
+                try:
+                    timestamp = long(args[1]) / 1000.0
+                    y,m,d,hr,mn,sc,_,j,_ = time.gmtime(timestamp) 
+                    ts = long(timestamp * 1000)
+                    ms = ts % 1000
+                    result = "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%02d  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
+                except:
+                    result = "invalid argument '%s' for command '%s'" % (args[1], cmd)
+        elif command == 'now':
+            now = long(time.time() * 1000)
+            timestamp = long(now) / 1000.0
+            y,m,d,hr,mn,sc,_,j,_ = time.gmtime(timestamp) 
+            ts = long(timestamp * 1000)
+            ms = ts % 1000
+            result = "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%02d  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
         elif command == 'keys':
             if arg_count > 2:
                 result = "wrong number of arguments for command '%s'" % cmd
