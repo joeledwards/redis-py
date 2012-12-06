@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import base64
 import os
 import random
 import re
@@ -52,6 +53,11 @@ while running:
             running = False
         elif command == 'help':
             print "Actions:"
+            print " .b64s <string> - base64 encodes the string"
+            print " .b64u <string> - base64 encodes the string"
+            print " .b64 <string> - attempts to perform a base64"
+            print "                 decode on the string"
+            print "                 (tries standard then url-safe)"
             print " .help - print this help message"
             print " .hkeys <key> - list all fields associated with this key"
             print " .keys [regex] - list all keys matching optional regex"
@@ -64,6 +70,27 @@ while running:
             print " --<key> <field> <value> - remove hash entry"
             print " <key> - print value of this entry"
             print " <key> <field> - print value of this hash entry"
+        elif command == 'b64s':
+            if arg_count != 2:
+                result = "wrong number of arguments for command '%s'" % cmd
+            else:
+                result = base64.standard_b64encode(args[1])
+        elif command == 'b64u':
+            if arg_count != 2:
+                result = "wrong number of arguments for command '%s'" % cmd
+            else:
+                result = base64.urlsafe_b64encode(args[1])
+        elif command == 'b64':
+            if arg_count != 2:
+                result = "wrong number of arguments for command '%s'" % cmd
+            else:
+                try:
+                    result = base64.standard_b64decode(args[1])
+                except:
+                    try:
+                        result = base64.urlsafe_b64decode(args[1])
+                    except:
+                        result = "Could not decode string"
         elif command == 'time':
             if arg_count != 2:
                 result = "wrong number of arguments for command '%s'" % cmd
