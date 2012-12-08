@@ -6,6 +6,7 @@ import re
 import readline
 from redis import config
 import redis
+import shlex
 import sys
 import time
 
@@ -32,8 +33,6 @@ except Exception, ex:
     print "Could not connect to database. Details: %s" % str(ex)
     sys.exit(1)
 
-regex = re.compile(r'''((?:[^ "']|"[^"]*"|'[^']*')+)''')
-
 running = True
 while running:
     cmd_str = raw_input("> ")
@@ -41,8 +40,7 @@ while running:
     if cmd_str == "":
         continue
 
-    args = regex.split(cmd_str.strip())[1::2]
-    args = map(str.strip, args)
+    args = shlex.split(cmd_str)
     cmd = args[0]
     arg_count = len(args)
     result = ""
