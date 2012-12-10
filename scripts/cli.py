@@ -98,7 +98,7 @@ while running:
                     y,m,d,hr,mn,sc,_,j,_ = time.gmtime(timestamp) 
                     ts = long(timestamp * 1000)
                     ms = ts % 1000
-                    result = "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%02d  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
+                    result = "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%02d UTC  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
                 except:
                     result = "invalid argument '%s' for command '%s'" % (args[1], cmd)
         elif command == 'now':
@@ -107,7 +107,7 @@ while running:
             y,m,d,hr,mn,sc,_,j,_ = time.gmtime(timestamp) 
             ts = long(timestamp * 1000)
             ms = ts % 1000
-            result = "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%02d  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
+            result = "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%02d UTC  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
         elif command == 'keys':
             if arg_count > 2:
                 result = "wrong number of arguments for command '%s'" % cmd
