@@ -159,6 +159,7 @@ while running:
             length = db.llen(key)
             value = str(db.lrange(key, 0, length - 1))
             status = db.ltrim(key, 0, 0)
+            status = db.lpop(key)
         elif key_type == "hash":
             value = sorted(db.hkeys(key))
             status = db.hdel(key, "*")
