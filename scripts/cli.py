@@ -115,14 +115,14 @@ while running:
                 expr = '*'
                 if arg_count > 1:
                     expr = trim_quotes(args[1])
-                result = db.keys(expr)
+                result = sorted(db.keys(expr))
         elif command == 'hkeys':
             if arg_count != 2:
                 result = "wrong number of arguments for command '%s'" % cmd
             else:
                 key = trim_quotes(args[1])
                 try:
-                    result = db.hkeys(key)
+                    result = sorted(db.hkeys(key))
                 except redis.exceptions.ResponseError:
                     result = "key for wrong type"
         else:
@@ -147,9 +147,27 @@ while running:
 
     elif cmd.startswith('-') and arg_count == 1:
         key = trim_quotes(cmd[1:])
-        value = db.get(key)
-        status = db.delete(key)
-        result = "deleting '%s' : '%s' [%s]" % (key, value, status)
+        key_type = db.type(key).lower()
+        deleted = True
+        if key_type == "none":
+            result = "key '%s' not found" % key
+            deleted = False
+        elif key_type == "string":
+            value = db.get(key)
+            status = db.delete(key)
+        elif key_type == "list":
+            length = db.llen(key)
+            value = str(db.lrange(key, 0, length - 1))
+            status = db.ltrim(key, 0, 0)
+        elif key_type == "hash":
+            value = sorted(db.hkeys(key))
+            status = db.hdel(key, "*")
+        else:
+            result = "key '%s' type %s not supported" % (key, key_type)
+            deleted = False
+
+        if deleted:
+            result = "deleting %s '%s' : '%s' [%s]" % (key_type, key, value, status)
 
     elif arg_count == 2:
         key = trim_quotes(cmd)
@@ -178,7 +196,7 @@ while running:
             count = db.zcard(key)
             result = "sorted set %s" % str(db.zrange(key, 0, count - 1))
         elif key_type == "hash":
-            result = "hash keys %s" % str(db.hkeys(key))
+            result = "hash keys %s" % str(sorted(db.hkeys(key)))
         else:
             result = "unrecognized type (%s) for key '%s'" % (key_type, key)
 
