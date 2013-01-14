@@ -45,7 +45,10 @@ def remove_keys(keys):
             deleted = False
 
         if deleted:
-            print "  deleting (success = %s) : [%s]> (%s) %s" % (status, key, key_type, value)
+            valueStr = str(value)
+            if (len(valueStr) > 64):
+                valueStr = valueStr[:60] + " ..."
+            print "  deleting (success:%s) : [%s] %s> %s" % (status, key, key_type, valueStr)
             removed += 1
         else:
             failed += 1
@@ -75,7 +78,7 @@ def display_entries(keys):
             print "  unrecognized type (%s) for key '%s'" % (key_type, key)
 
         if value is not None:
-            print "  [%s]> (%s) %s" % (key, key_type, value)
+            print "  [%s] %s> %s" % (key, key_type, value)
 
     return "evaluated %d keys" % len(keys)
 
@@ -123,6 +126,7 @@ while running:
             print "                 supplied key expressions"
             print " .help - print this help message"
             print " .hkeys <key> - list all fields associated with this key"
+            print " .info - print redis database info"
             print " .keys [regex] - list all keys matching optional regex"
             print " .now - format the current time"
             print " .quit - exit cli"
@@ -209,6 +213,12 @@ while running:
                         result = remove_keys(keys)
                     elif command == 'entries':
                         result = display_entries(keys)
+        elif command == 'info':
+            info = db.info()
+            maxKeyLen = max(map(len, info.keys()))
+            for k,v in info.items():
+                print str(k).rjust(maxKeyLen + 1), ":", v
+            result = "Info Displayed"
         else:
             result = "Invalid command '%s'" % command
 
@@ -238,10 +248,12 @@ while running:
         key = trim_quotes(cmd)
         field = trim_quotes(args[1])
         key_type = db.type(key).lower()
-        if key_type != 'hash':
+        if key_type == 'none':
+            result = "no entry found for key '%s'"
+        elif key_type != 'hash':
             if key_type == "zset":
                 key_type = "sorted set"
-            result = "key '%s' represents a %s, not a hash" % key_type
+            result = "key '%s' represents a %s, not a hash" % (key, key_type)
         else:
             result = db.hget(key, field)
 
