@@ -20,6 +20,65 @@ def trim_quotes(string):
         result = string.strip("'")
     return result
 
+def remove_keys(keys):
+    removed = 0
+    failed = 0
+    for key in keys:
+        key_type = db.type(key).lower()
+        deleted = True
+        if key_type == "none":
+            print "  key '%s' not found" % key
+            deleted = False
+        elif key_type == "string":
+            value = db.get(key)
+            status = db.delete(key)
+        elif key_type == "list":
+            length = db.llen(key)
+            value = str(db.lrange(key, 0, length - 1))
+            status = db.ltrim(key, 0, 0)
+            status = db.lpop(key)
+        elif key_type == "hash":
+            value = sorted(db.hkeys(key))
+            status = db.hdel(key, "*")
+        else:
+            result = "key '%s' type %s not supported" % (key, key_type)
+            deleted = False
+
+        if deleted:
+            print "  deleting (success = %s) : [%s]> (%s) %s" % (status, key, key_type, value)
+            removed += 1
+        else:
+            failed += 1
+
+    return "deleted %d of %d keys (%d failures)" % (removed, len(keys), failed)
+
+def display_entries(keys):
+    for key in keys:
+        key = trim_quotes(key)
+        key_type = db.type(key).lower()
+        value = None
+        if key_type == "none":
+            print "  key '%s' not found" % key
+        elif key_type == "string":
+            value = str(db.get(key))
+        elif key_type == "list":
+            length = db.llen(key)
+            value = str(db.lrange(key, 0, length - 1))
+        elif key_type == "set":
+            value = str(db.smembers(key))
+        elif key_type == "zset":
+            count = db.zcard(key)
+            value = str(db.zrange(key, 0, count - 1))
+        elif key_type == "hash":
+            value = str(sorted(db.hkeys(key)))
+        else:
+            print "  unrecognized type (%s) for key '%s'" % (key_type, key)
+
+        if value is not None:
+            print "  [%s]> (%s) %s" % (key, key_type, value)
+
+    return "evaluated %d keys" % len(keys)
+
 cfg = config.from_file(config.select_config(config.find_configs()))
 
 try:
@@ -56,6 +115,12 @@ while running:
             print " .b64 <string> - attempts to perform a base64"
             print "                 decode on the string"
             print "                 (tries standard then url-safe)"
+            print " .clean <key_expr [key_expr ...]>"
+            print "               - removes all entries matching the"
+            print "                 supplied key expressions"
+            print " .entries <key_expr [key_expr ...]>"
+            print "               - displays all entries matching the"
+            print "                 supplied key expressions"
             print " .help - print this help message"
             print " .hkeys <key> - list all fields associated with this key"
             print " .keys [regex] - list all keys matching optional regex"
@@ -125,8 +190,28 @@ while running:
                     result = sorted(db.hkeys(key))
                 except redis.exceptions.ResponseError:
                     result = "key for wrong type"
+        elif command in ('clean', 'entries'):
+            if arg_count < 2:
+                result = "no keys supplied for command '%s'" % cmd
+            else:
+                keys = []
+                for keyreg in args[1:]:
+                    keyreg = trim_quotes(keyreg)
+                    try:
+                        keys.extend(db.keys(keyreg))
+                    except redis.exceptions.ResponseError:
+                        keys = None
+                        result = "error fetching keys matching '%s' for command '%s'" % (keyreg, cmd)
+                        break
+                if keys is not None:
+                    keys = sorted(keys)
+                    if command == 'clean':
+                        result = remove_keys(keys)
+                    elif command == 'entries':
+                        result = display_entries(keys)
         else:
             result = "Invalid command '%s'" % command
+
     elif cmd.startswith('++') and arg_count == 3:
         key = trim_quotes(cmd[2:])
         field = trim_quotes(args[1])
@@ -147,28 +232,7 @@ while running:
 
     elif cmd.startswith('-') and arg_count == 1:
         key = trim_quotes(cmd[1:])
-        key_type = db.type(key).lower()
-        deleted = True
-        if key_type == "none":
-            result = "key '%s' not found" % key
-            deleted = False
-        elif key_type == "string":
-            value = db.get(key)
-            status = db.delete(key)
-        elif key_type == "list":
-            length = db.llen(key)
-            value = str(db.lrange(key, 0, length - 1))
-            status = db.ltrim(key, 0, 0)
-            status = db.lpop(key)
-        elif key_type == "hash":
-            value = sorted(db.hkeys(key))
-            status = db.hdel(key, "*")
-        else:
-            result = "key '%s' type %s not supported" % (key, key_type)
-            deleted = False
-
-        if deleted:
-            result = "deleting %s '%s' : '%s' [%s]" % (key_type, key, value, status)
+        result = remove_keys([key])
 
     elif arg_count == 2:
         key = trim_quotes(cmd)
@@ -184,25 +248,11 @@ while running:
     elif arg_count == 1:
         key = trim_quotes(cmd)
         key_type = db.type(key).lower()
-        if key_type == "none":
-            result = "key '%s' not found" % key
-        elif key_type == "string":
-            result = db.get(key)
-        elif key_type == "list":
-            length = db.llen(key)
-            result = "list %s" % str(db.lrange(key, 0, length - 1))
-        elif key_type == "set":
-            result = "set %s" % str(db.smembers(key))
-        elif key_type == "zset":
-            count = db.zcard(key)
-            result = "sorted set %s" % str(db.zrange(key, 0, count - 1))
-        elif key_type == "hash":
-            result = "hash keys %s" % str(sorted(db.hkeys(key)))
-        else:
-            result = "unrecognized type (%s) for key '%s'" % (key_type, key)
+        result = display_entries([key])
 
     else:
         result = "Invalid command string '%s'" % cmd_str
 
     print result
+
 
