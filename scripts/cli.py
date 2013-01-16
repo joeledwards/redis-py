@@ -48,7 +48,10 @@ def remove_keys(keys):
             valueStr = str(value)
             if (len(valueStr) > 64):
                 valueStr = valueStr[:60] + " ..."
-            print "  deleting (success:%s) : [%s] %s> %s" % (status, key, key_type, valueStr)
+            statusStr = str(status)
+            if (len(statusStr) > 32):
+                statusStr = statusStr[:28] + " ..."
+            print "  deleting (result:%s) : [%s] %s> %s" % (status, key, key_type, valueStr)
             removed += 1
         else:
             failed += 1
