@@ -282,7 +282,13 @@ class CommandLine: #/*{{{*/
         field = trim_quotes(field)
         value = self.db.redis().hget(key, field)
         status = self.db.redis().hdel(key,field)
-        return "deleting ('%s','%s') : '%s' [%s]" % (key, field, value, status)
+        valueStr = str(value)
+        if (len(valueStr) > 64):
+            valueStr = valueStr[:60] + " ..."
+        statusStr = str(status)
+        if (len(statusStr) > 32):
+            statusStr = statusStr[:28] + " ..."
+        return "deleting (result:%s) : [%s:%s]> %s" % (statusStr, key, field, valueStr)
 
     def show(self, key, field=None):
         if field is None:
