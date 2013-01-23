@@ -68,25 +68,28 @@ def select_config(config_files):
     file_list = sorted(config_files)
     file_count = len(file_list)
     config_file = None
+    op = "quit"
     while config_file is None:
         try:
+            print "Select file or enter location. Type 'quit' to exit:"
             if file_count > 0:
-                print "Configuration Files:"
                 for i in range(0, file_count):
                     print "  %d : %s" % (i, file_list[i])
 
             selection = raw_input("enter selection: ")
 
-            try:
-                config_file = file_list[int(selection)]
-            except:
-                config_file = selection
-
-            if not os.path.isfile(config_file):
-                config_file = None
-
+            if selection.lower() == "quit":
+                config_file = ""
+            else:
+                op = "file"
+                try:
+                    config_file = file_list[int(selection)]
+                except:
+                    config_file = selection
+                if not os.path.isfile(config_file):
+                    config_file = None
         except:
             config_file = None
 
-    return config_file
+    return (op,config_file)
 

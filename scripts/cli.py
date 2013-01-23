@@ -317,8 +317,12 @@ class CommandLine: #/*{{{*/
 
 def select_db(): #/*{{{*/
     quit = True
-    cfg = config.from_file(config.select_config(config.find_configs()))
 
+    op,path = config.select_config(config.find_configs())
+    if op == "quit":
+        return quit
+
+    cfg = config.from_file(path)
     try:
         db = Database(cfg)
         cli = CommandLine(db)
@@ -327,8 +331,11 @@ def select_db(): #/*{{{*/
         del db
         db = None
     except KeyError, ex:
-        print "Malformed config key '%s' in %s" % (str(ex), config_file)
+        print "Malformed config key '%s' in %s" % (str(ex), path)
         sys.exit(1)
+    except redis.ConnectionError, ex:
+        print ex
+        quit = False
     except Exception, ex:
         print "An unknown error ocurred. Details: %s" % str(ex)
         traceback.print_exc(file=sys.stdout)
