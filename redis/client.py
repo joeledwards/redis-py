@@ -148,6 +148,10 @@ def parse_client(response, **options):
         return clients
     elif parse == 'KILL':
         return bool(response)
+    elif parse == 'GETNAME':
+        return response and nativestr(response)
+    elif parse == 'SETNAME':
+        return nativestr(response) == 'OK'
 
 
 def parse_config(response, **options):
@@ -179,12 +183,12 @@ class StrictRedis(object):
     RESPONSE_CALLBACKS = dict_merge(
         string_keys_to_dict(
             'AUTH DEL EXISTS EXPIRE EXPIREAT HDEL HEXISTS HMSET MOVE MSETNX '
-            'PERSIST RENAMENX SISMEMBER SMOVE SETEX SETNX SREM ZREM',
+            'PERSIST RENAMENX SISMEMBER SMOVE SETEX SETNX ZREM',
             bool
         ),
         string_keys_to_dict(
             'BITCOUNT DECRBY GETBIT HLEN INCRBY LINSERT LLEN LPUSHX RPUSHX '
-            'SADD SCARD SDIFFSTORE SETBIT SETRANGE SINTERSTORE STRLEN '
+            'SADD SCARD SDIFFSTORE SETBIT SETRANGE SINTERSTORE SREM STRLEN '
             'SUNIONSTORE ZADD ZCARD ZREMRANGEBYRANK ZREMRANGEBYSCORE',
             int
         ),
@@ -212,9 +216,9 @@ class StrictRedis(object):
         string_keys_to_dict('ZRANK ZREVRANK', int_or_none),
         {
             'BGREWRITEAOF': (
-                lambda r: r == 'Background rewriting of AOF file started'
+                lambda r: nativestr(r) == 'Background rewriting of AOF file started'
             ),
-            'BGSAVE': lambda r: r == 'Background saving started',
+            'BGSAVE': lambda r: nativestr(r) == 'Background saving started',
             'BRPOPLPUSH': lambda r: r and r or None,
             'CLIENT': parse_client,
             'CONFIG': parse_config,
@@ -389,6 +393,14 @@ class StrictRedis(object):
     def client_list(self):
         "Returns a list of currently connected clients"
         return self.execute_command('CLIENT', 'LIST', parse='LIST')
+
+    def client_getname(self):
+        "Returns the current connection name"
+        return self.execute_command('CLIENT', 'GETNAME', parse='GETNAME')
+
+    def client_setname(self, name):
+        "Sets the current connection name"
+        return self.execute_command('CLIENT', 'SETNAME', name, parse='SETNAME')
 
     def config_get(self, pattern="*"):
         "Return a dictionary of configuration based on the ``pattern``"
