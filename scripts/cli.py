@@ -11,7 +11,8 @@ import sys
 import time
 import traceback
 
-def trim_quotes(string): #/*{{{*/
+# Helper Functions /*{{{*/
+def trim_quotes(string):
     result = string
     if len(string) < 1:
         pass
@@ -20,6 +21,17 @@ def trim_quotes(string): #/*{{{*/
     elif string[0] == "'":
         result = string.strip("'")
     return result
+
+def format_int(x):
+    if type(x) not in [type(0), type(0L)]:
+        raise TypeError("Parameter must be an integer.")
+    if x < 0:
+        return '-' + intWithCommas(-x)
+    result = ''
+    while x >= 1000:
+        x, r = divmod(x, 1000)
+        result = ",%03d%s" % (r, result)
+    return "%d%s" % (x, result)
 #/*}}}*/
 
 class Database: #/*{{{*/
@@ -62,7 +74,7 @@ class Database: #/*{{{*/
                 statusStr = str(status)
                 if (len(statusStr) > 32):
                     statusStr = statusStr[:28] + " ..."
-                print "  deleting (result:%s) : [%s] %s> %s" % (status, key, key_type, valueStr)
+                print "  deleting (result:%s) : [%s] %s> %s" % (statusStr, key, key_type, valueStr)
                 removed += 1
             else:
                 failed += 1
@@ -144,6 +156,8 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("b64", self.b64_decode).with_num_args(1).with_usage("<string> - attempts to perform a base64 decode on the string (tries standard then url-safe)"))
         self.__add_action(Action("clean", self.clean).with_min_args(1).with_usage("<key_expr [key_expr ...]> - removes all entries matching the"))
         self.__add_action(Action("close", self.close).with_num_args(0).with_usage("- closes the connection to the database and opens the connection dialog"))
+        self.__add_action(Action("engines", self.list_engines).with_num_args(0).with_usage(" - lists all engines"))
+        self.__add_action(Action("engine", self.format_engine).with_num_args(1).with_usage("<engine-id> - prints a custom-formatted summary for this engine if it exists"))
         self.__add_action(Action("entries", self.list_entries).with_min_args(1).with_usage("<key_expr [key_expr ...]> - displays all entries matching the supplied key expressions"))
         self.__add_action(Action("help", self.help).with_num_args(0).with_usage("- print the help message"))
         self.__add_action(Action("hkeys", self.hash_fields).with_num_args(1).with_usage("- list all fields associated with this hash"))
@@ -216,6 +230,47 @@ class CommandLine: #/*{{{*/
         if type(result) != list:
             return result
         return self.db.display_entries(result)
+
+    def list_engines(self):
+        key_list = self.db.redis().keys("ENGINE-*/*")
+        key_map = {}
+        print "Engines:"
+        for key in key_list:
+            parts = key.split('/')
+            if len(parts) < 1:
+                continue
+            parts = parts[0].split('-')
+            if len(parts) < 2:
+                continue
+            id = parts[1]
+            if key_map.has_key(id):
+                continue
+            print "  ", id
+            key_map[id] = True
+        return "Found %d engine(s)" % len(key_map)
+
+    def format_engine(self, id):
+        prefix = "ENGINE-%s" % id
+        key_list = self.db.redis().keys("%s/*" % prefix)
+        if len(key_list) < 1:
+            return "Engine '%s' not found" % id
+        print "Engine '%s' properties:" % id
+        property_list = map(lambda s: s.split('/', 1)[1], key_list)
+        justify = max(map(len, property_list))
+        pairs = zip(property_list, self.db.redis().mget(key_list))
+        for k,v in sorted(pairs):
+            if k in ("START_TIME", "CREATION_TIME", "LAST_UPDATE_TIME") :
+                formatted = self.time(v)
+            elif k.startswith("MEM"):
+                try:
+                    v = int(v)
+                    formatted = "%s bytes" % format_int(int(v))
+                except:
+                    formatted = v
+            else:
+                formatted = v
+            print " %s : %s" % (k.rjust(justify), formatted)
+        return ""
 
     def close(self):
         self.running = False

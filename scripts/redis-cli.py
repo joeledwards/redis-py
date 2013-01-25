@@ -7,7 +7,10 @@ from redis import config
 import sys
 import time
 
-cfg = config.from_file(config.select_config(config.find_configs()))
+op,path = config.select_config(config.find_configs())
+if op.lower() == "quit":
+    sys.exit(0)
+cfg = config.from_file(path)
 
 try:
     command = "redis-cli -h %(host)s -p %(port)s -a %(auth)s" % cfg
