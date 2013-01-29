@@ -256,10 +256,10 @@ class CommandLine: #/*{{{*/
             return "Engine '%s' not found" % id
         print "Engine '%s' properties:" % id
         property_list = map(lambda s: s.split('/', 1)[1], key_list)
-        justify = max(map(len, property_list))
+        justify = max(map(len, property_list)) + 2
         pairs = zip(property_list, self.db.redis().mget(key_list))
         for k,v in sorted(pairs):
-            if k in ("START_TIME", "CREATION_TIME", "LAST_UPDATE_TIME") :
+            if k.startswith("TIME_"):
                 formatted = self.time(v)
             elif k.startswith("MEM"):
                 try:
@@ -269,7 +269,7 @@ class CommandLine: #/*{{{*/
                     formatted = v
             else:
                 formatted = v
-            print " %s : %s" % (k.rjust(justify), formatted)
+            print " %s %s" % ((k+" ").ljust(justify, '-'), formatted)
         return ""
 
     def close(self):
