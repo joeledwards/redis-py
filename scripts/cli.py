@@ -398,6 +398,8 @@ def select_db(): #/*{{{*/
         except ResponseError, ex:
             print "Reconnecting after Response Error: %s" % str(ex)
             again = True
+        except KeyboardInterrupt, ex:
+            print
         except Exception, ex:
             print "An unknown error ocurred. Details: %s" % str(ex)
             traceback.print_exc(file=sys.stdout)
