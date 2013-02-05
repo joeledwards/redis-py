@@ -5,6 +5,7 @@ import random
 import re
 import readline
 from redis import config
+from redis.exceptions import ResponseError
 import redis
 import shlex
 import sys
@@ -378,23 +379,29 @@ def select_db(): #/*{{{*/
         return quit
 
     cfg = config.from_file(path)
-    try:
-        db = Database(cfg)
-        cli = CommandLine(db)
-        cli.loop()
-        quit = cli.done
-        del db
-        db = None
-    except KeyError, ex:
-        print "Malformed config key '%s' in %s" % (str(ex), path)
-        sys.exit(1)
-    except redis.ConnectionError, ex:
-        print ex
-        quit = False
-    except Exception, ex:
-        print "An unknown error ocurred. Details: %s" % str(ex)
-        traceback.print_exc(file=sys.stdout)
-        sys.exit(1)
+    again = True
+    while again: 
+        try:
+            again = False
+            db = Database(cfg)
+            cli = CommandLine(db)
+            cli.loop()
+            quit = cli.done
+            del db
+            db = None
+        except KeyError, ex:
+            print "Malformed config key '%s' in %s" % (str(ex), path)
+            sys.exit(1)
+        except redis.ConnectionError, ex:
+            print ex
+            quit = False
+        except ResponseError, ex:
+            print "Reconnecting after Response Error: %s" % str(ex)
+            again = True
+        except Exception, ex:
+            print "An unknown error ocurred. Details: %s" % str(ex)
+            traceback.print_exc(file=sys.stdout)
+            sys.exit(1)
     return quit
 #/*}}}*/
 
