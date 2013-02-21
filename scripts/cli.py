@@ -314,9 +314,9 @@ class CommandLine: #/*{{{*/
             y,m,d,hr,mn,sc,_,j,_ = time.gmtime(timestamp) 
             ts = long(timestamp * 1000)
             ms = ts % 1000
-            return "%04d-%02d-%02d (%03d) %02d:%02d:%02d.%03d UTC  [%d]" % (y,m,d,j,hr,mn,sc,ms,ts)
+            return "%04d-%02d-%02d %02d:%02d:%02d.%03d +0000  [%d]" % (y,m,d,hr,mn,sc,ms,ts)
         except:
-            return "invalid timestamp format"
+            return "invalid timestamp format : %s" % str(timestamp)
 
     def set(self, key, value):
         key = trim_quotes(key)
