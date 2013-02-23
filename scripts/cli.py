@@ -254,9 +254,9 @@ class CommandLine: #/*{{{*/
         prefix = "ENGINE-%s" % id
         key_list = self.db.redis().keys("%s/*" % prefix)
         if len(key_list) < 1:
-            return "Engine '%s' not found" % id
-        print "Engine '%s' properties:" % id
-        property_list = map(lambda s: s.split('/', 1)[1], key_list)
+            return "No engine properties found"
+        print "Engine Properties:"
+        property_list = map(lambda s: s.split('-', 1)[1], key_list)
         justify = max(map(len, property_list)) + 2
         pairs = zip(property_list, self.db.redis().mget(key_list))
         for k,v in sorted(pairs):
