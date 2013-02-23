@@ -260,9 +260,10 @@ class CommandLine: #/*{{{*/
         justify = max(map(len, property_list)) + 2
         pairs = zip(property_list, self.db.redis().mget(key_list))
         for k,v in sorted(pairs):
-            if k.startswith("TIME_"):
+            property_name = k.split('/',1)[1]
+            if property_name.startswith("TIME_"):
                 formatted = self.time(v)
-            elif k.startswith("MEM"):
+            elif property_name.startswith("MEM"):
                 try:
                     v = int(v)
                     formatted = "%s bytes" % format_int(int(v))
