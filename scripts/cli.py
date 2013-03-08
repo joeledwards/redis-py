@@ -157,21 +157,22 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("b64", self.b64_decode).with_num_args(1).with_usage("<string> - attempts to perform a base64 decode on the string (tries standard then url-safe)"))
         self.__add_action(Action("clean", self.clean).with_min_args(1).with_usage("<key_expr [key_expr ...]> - removes all entries matching the"))
         self.__add_action(Action("close", self.close).with_num_args(0).with_usage("- closes the connection to the database and opens the connection dialog"))
+        self.__add_action(Action("del", self.delete).with_num_args(1).with_usage("<key> - remove string entry"))
         self.__add_action(Action("engines", self.list_engines).with_num_args(0).with_usage(" - lists all engines"))
         self.__add_action(Action("engine", self.format_engine).with_num_args(1).with_usage("<engine-id> - prints a custom-formatted summary for this engine if it exists"))
         self.__add_action(Action("entries", self.list_entries).with_min_args(1).with_usage("<key_expr [key_expr ...]> - displays all entries matching the supplied key expressions"))
         self.__add_action(Action("help", self.help).with_num_args(0).with_usage("- print the help message"))
+        self.__add_action(Action("hdel", self.hash_delete).with_num_args(2).with_usage("<key> <field> - remove hash entry"))
         self.__add_action(Action("hkeys", self.hash_fields).with_num_args(1).with_usage("- list all fields associated with this hash"))
+        self.__add_action(Action("hset", self.hash_set).with_num_args(3).with_usage("<key> <field> <value> - set hash entry"))
         self.__add_action(Action("info", self.info).with_num_args(0).with_usage("- print redis server info"))
         self.__add_action(Action("keys", self.keys).with_min_args(0).with_max_args(1).with_usage("[regex] - list all keys matching optional regex (all keys if no regex supplied)"))
         self.__add_action(Action("now", self.now).with_num_args(0).with_usage("- format the current time"))
         self.__add_action(Action("quit", self.quit).with_num_args(0).with_usage("- exit redis CLI"))
-        self.__add_action(Action("time", self.time).with_num_args(1).with_usage("<timestamp> - format the given timestamp"))
+        self.__add_action(Action("rename", self.rename).with_num_args(2).with_usage("<key_name> <new_name> - renames a key"))
         self.__add_action(Action("set", self.set).with_num_args(2).with_usage("<key> <value> - set string entry"))
-        self.__add_action(Action("hset", self.hash_set).with_num_args(3).with_usage("<key> <field> <value> - set hash entry"))
-        self.__add_action(Action("del", self.delete).with_num_args(1).with_usage("<key> - remove string entry"))
-        self.__add_action(Action("hdel", self.hash_delete).with_num_args(2).with_usage("<key> <field> - remove hash entry"))
         self.__add_action(Action("show", self.show).with_min_args(1).with_max_args(2).with_usage("<key> [field] - print value of this entry"))
+        self.__add_action(Action("time", self.time).with_num_args(1).with_usage("<timestamp> - format the given timestamp"))
 
     def __add_action(self, action):
         self.actions[action.name] = action
@@ -233,7 +234,7 @@ class CommandLine: #/*{{{*/
         return self.db.display_entries(result)
 
     def list_engines(self):
-        key_list = self.db.redis().keys("ENGINE-*/*")
+        key_list = self.db.redis().keys("Engine-*/*")
         key_map = {}
         print "Engines:"
         for key in key_list:
@@ -251,7 +252,7 @@ class CommandLine: #/*{{{*/
         return "Found %d engine(s)" % len(key_map)
 
     def format_engine(self, id):
-        prefix = "ENGINE-%s" % id
+        prefix = "Engine-%s" % id
         key_list = self.db.redis().keys("%s/*" % prefix)
         if len(key_list) < 1:
             return "No engine properties found"
@@ -261,9 +262,9 @@ class CommandLine: #/*{{{*/
         pairs = zip(property_list, self.db.redis().mget(key_list))
         for k,v in sorted(pairs):
             property_name = k.split('/',1)[1]
-            if property_name.startswith("TIME_"):
+            if property_name.startswith("time-"):
                 formatted = self.time(v)
-            elif property_name.startswith("MEM"):
+            elif property_name.startswith("mem-"):
                 try:
                     v = int(v)
                     formatted = "%s bytes" % format_int(int(v))
@@ -323,6 +324,11 @@ class CommandLine: #/*{{{*/
         key = trim_quotes(key)
         value = trim_quotes(value)
         return self.db.redis().set(key, value)
+
+    def rename(self, key_name, new_name):
+        key_name = trim_quotes(key_name)
+        new_name = trim_quotes(new_name)
+        return self.db.redis().rename(key_name, new_name)
 
     def hash_set(self, key, field, value):
         key = trim_quotes(key)
