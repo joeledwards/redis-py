@@ -387,8 +387,16 @@ def select_db(): #/*{{{*/
 
     cfg = config.from_file(path)
     again = True
+    last_connect = 0.0
     while again: 
         try:
+            connect_time = time.time()
+            if connect_time - last_connect < 0.25:
+                again = False
+                quit = False
+                continue
+
+            last_connect = connect_time
             again = False
             db = Database(cfg)
             cli = CommandLine(db)
