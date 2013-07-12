@@ -4,7 +4,7 @@ import datetime
 import sys
 import warnings
 import time as mod_time
-from redis._compat import (b, izip, imap, iteritems, dictkeys, dictvalues,
+from redis._compat import (b, izip, imap, iteritems, iterkeys, itervalues,
                            basestring, long, nativestr, urlparse, bytes)
 from redis.connection import ConnectionPool, UnixDomainSocketConnection
 from redis.exceptions import (
@@ -104,7 +104,7 @@ def parse_info(response):
 
     for line in response.splitlines():
         if line and not line.startswith('#'):
-            key, value = line.split(':')
+            key, value = line.split(':', 1)
             info[key] = get_value(value)
     return info
 
@@ -125,6 +125,17 @@ def zset_score_pairs(response, **options):
     score_cast_func = options.get('score_cast_func', float)
     it = iter(response)
     return list(izip(it, imap(score_cast_func, it)))
+
+
+def sort_return_tuples(response, **options):
+    """
+    If ``groups`` is specified, return the response as a list of
+    n-element tuples with n being the value found in options['groups']
+    """
+    if not response or not options['groups']:
+        return response
+    n = options['groups']
+    return list(izip(*[response[i::n] for i in range(n)]))
 
 
 def int_or_none(response):
@@ -182,14 +193,15 @@ class StrictRedis(object):
     """
     RESPONSE_CALLBACKS = dict_merge(
         string_keys_to_dict(
-            'AUTH DEL EXISTS EXPIRE EXPIREAT HDEL HEXISTS HMSET MOVE MSETNX '
-            'PERSIST RENAMENX SISMEMBER SMOVE SETEX SETNX ZREM',
+            'AUTH EXISTS EXPIRE EXPIREAT HEXISTS HMSET MOVE MSETNX PERSIST '
+            'PSETEX RENAMENX SISMEMBER SMOVE SETEX SETNX',
             bool
         ),
         string_keys_to_dict(
-            'BITCOUNT DECRBY GETBIT HLEN INCRBY LINSERT LLEN LPUSHX RPUSHX '
-            'SADD SCARD SDIFFSTORE SETBIT SETRANGE SINTERSTORE SREM STRLEN '
-            'SUNIONSTORE ZADD ZCARD ZREMRANGEBYRANK ZREMRANGEBYSCORE',
+            'BITCOUNT DECRBY DEL GETBIT HDEL HLEN INCRBY LINSERT LLEN LPUSHX '
+            'RPUSHX SADD SCARD SDIFFSTORE SETBIT SETRANGE SINTERSTORE SREM '
+            'STRLEN SUNIONSTORE ZADD ZCARD ZREM ZREMRANGEBYRANK '
+            'ZREMRANGEBYSCORE',
             int
         ),
         string_keys_to_dict('INCRBYFLOAT HINCRBYFLOAT', float),
@@ -198,10 +210,11 @@ class StrictRedis(object):
             'LPUSH RPUSH',
             lambda r: isinstance(r, long) and r or nativestr(r) == 'OK'
         ),
+        string_keys_to_dict('SORT', sort_return_tuples),
         string_keys_to_dict('ZSCORE ZINCRBY', float_or_none),
         string_keys_to_dict(
             'FLUSHALL FLUSHDB LSET LTRIM MSET RENAME '
-            'SAVE SELECT SET SHUTDOWN SLAVEOF WATCH UNWATCH',
+            'SAVE SELECT SHUTDOWN SLAVEOF WATCH UNWATCH',
             lambda r: nativestr(r) == 'OK'
         ),
         string_keys_to_dict('BLPOP BRPOP', lambda r: r and tuple(r) or None),
@@ -216,7 +229,8 @@ class StrictRedis(object):
         string_keys_to_dict('ZRANK ZREVRANK', int_or_none),
         {
             'BGREWRITEAOF': (
-                lambda r: nativestr(r) == 'Background rewriting of AOF file started'
+                lambda r: nativestr(r) == ('Background rewriting of AOF '
+                                           'file started')
             ),
             'BGSAVE': lambda r: nativestr(r) == 'Background saving started',
             'CLIENT': parse_client,
@@ -229,6 +243,7 @@ class StrictRedis(object):
             'PING': lambda r: nativestr(r) == 'PONG',
             'RANDOMKEY': lambda r: r and r or None,
             'SCRIPT': parse_script,
+            'SET': lambda r: r and nativestr(r) == 'OK',
             'TIME': lambda x: (int(x[0]), int(x[1]))
         }
     )
@@ -260,7 +275,7 @@ class StrictRedis(object):
             except (AttributeError, ValueError):
                 db = 0
 
-        return cls(host=url.hostname, port=url.port, db=db,
+        return cls(host=url.hostname, port=int(url.port or 6379), db=db,
                    password=url.password, **kwargs)
 
     def __init__(self, host='localhost', port=6379,
@@ -318,13 +333,15 @@ class StrictRedis(object):
         should expect a single arguement which is a Pipeline object.
         """
         shard_hint = kwargs.pop('shard_hint', None)
+        value_from_callable = kwargs.pop('value_from_callable', False)
         with self.pipeline(True, shard_hint) as pipe:
             while 1:
                 try:
                     if watches:
                         pipe.watch(*watches)
-                    func(pipe)
-                    return pipe.execute()
+                    func_value = func(pipe)
+                    exec_value = pipe.execute()
+                    return func_value if value_from_callable else exec_value
                 except WatchError:
                     continue
 
@@ -409,25 +426,17 @@ class StrictRedis(object):
         "Set config item ``name`` with ``value``"
         return self.execute_command('CONFIG', 'SET', name, value, parse='SET')
 
+    def config_resetstat(self):
+        "Reset runtime statistics"
+        return self.execute_command('CONFIG', 'RESETSTAT', parse='RESETSTAT')
+
     def dbsize(self):
         "Returns the number of keys in the current database"
         return self.execute_command('DBSIZE')
 
-    def time(self):
-        """
-        Returns the server time as a 2-item tuple of ints:
-        (seconds since epoch, microseconds into this second).
-        """
-        return self.execute_command('TIME')
-
     def debug_object(self, key):
         "Returns version specific metainformation about a give key"
         return self.execute_command('DEBUG', 'OBJECT', key)
-
-    def delete(self, *names):
-        "Delete one or more keys specified by ``names``"
-        return self.execute_command('DEL', *names)
-    __delitem__ = delete
 
     def echo(self, value):
         "Echo the string back from the server"
@@ -497,6 +506,13 @@ class StrictRedis(object):
             return self.execute_command("SLAVEOF", "NO", "ONE")
         return self.execute_command("SLAVEOF", host, port)
 
+    def time(self):
+        """
+        Returns the server time as a 2-item tuple of ints:
+        (seconds since epoch, microseconds into this second).
+        """
+        return self.execute_command('TIME')
+
     #### BASIC KEY COMMANDS ####
     def append(self, key, value):
         """
@@ -505,13 +521,6 @@ class StrictRedis(object):
         Returns the new length of the value at ``key``.
         """
         return self.execute_command('APPEND', key, value)
-
-    def getrange(self, key, start, end):
-        """
-        Returns the substring of the string value stored at ``key``,
-        determined by the offsets ``start`` and ``end`` (both are inclusive)
-        """
-        return self.execute_command('GETRANGE', key, start, end)
 
     def bitcount(self, key, start=None, end=None):
         """
@@ -540,6 +549,11 @@ class StrictRedis(object):
         the value will be initialized as 0 - ``amount``
         """
         return self.execute_command('DECRBY', name, amount)
+
+    def delete(self, *names):
+        "Delete one or more keys specified by ``names``"
+        return self.execute_command('DEL', *names)
+    __delitem__ = delete
 
     def exists(self, name):
         "Returns a boolean indicating whether key ``name`` exists"
@@ -584,6 +598,13 @@ class StrictRedis(object):
         "Returns a boolean indicating the value of ``offset`` in ``name``"
         return self.execute_command('GETBIT', name, offset)
 
+    def getrange(self, key, start, end):
+        """
+        Returns the substring of the string value stored at ``key``,
+        determined by the offsets ``start`` and ``end`` (both are inclusive)
+        """
+        return self.execute_command('GETRANGE', key, start, end)
+
     def getset(self, name, value):
         """
         Set the value at key ``name`` to ``value`` if key doesn't exist
@@ -597,6 +618,16 @@ class StrictRedis(object):
         the value will be initialized as ``amount``
         """
         return self.execute_command('INCRBY', name, amount)
+
+    def incrby(self, name, amount=1):
+        """
+        Increments the value of ``key`` by ``amount``.  If no key exists,
+        the value will be initialized as ``amount``
+        """
+
+        # An alias for ``incr()``, because it is already implemented
+        # as INCRBY redis command.
+        return self.incr(name, amount)
 
     def incrbyfloat(self, name, amount=1.0):
         """
@@ -616,20 +647,33 @@ class StrictRedis(object):
         args = list_or_args(keys, args)
         return self.execute_command('MGET', *args)
 
-    def mset(self, mapping):
-        "Sets each key in the ``mapping`` dict to its corresponding value"
+    def mset(self, *args, **kwargs):
+        """
+        Sets key/values based on a mapping. Mapping can be supplied as a single
+        dictionary argument or as kwargs.
+        """
+        if args:
+            if len(args) != 1 or not isinstance(args[0], dict):
+                raise RedisError('MSET requires **kwargs or a single dict arg')
+            kwargs.update(args[0])
         items = []
-        for pair in iteritems(mapping):
+        for pair in iteritems(kwargs):
             items.extend(pair)
         return self.execute_command('MSET', *items)
 
-    def msetnx(self, mapping):
+    def msetnx(self, *args, **kwargs):
         """
-        Sets each key in the ``mapping`` dict to its corresponding value if
-        none of the keys are already set
+        Sets key/values based on a mapping if none of the keys are already set.
+        Mapping can be supplied as a single dictionary argument or as kwargs.
+        Returns a boolean indicating if the operation was successful.
         """
+        if args:
+            if len(args) != 1 or not isinstance(args[0], dict):
+                raise RedisError('MSETNX requires **kwargs or a single '
+                                 'dict arg')
+            kwargs.update(args[0])
         items = []
-        for pair in iteritems(mapping):
+        for pair in iteritems(kwargs):
             items.extend(pair)
         return self.execute_command('MSETNX', *items)
 
@@ -649,7 +693,7 @@ class StrictRedis(object):
         """
         if isinstance(time, datetime.timedelta):
             ms = int(time.microseconds / 1000)
-            time = time.seconds + time.days * 24 * 3600 * 1000 + ms
+            time = (time.seconds + time.days * 24 * 3600) * 1000 + ms
         return self.execute_command('PEXPIRE', name, time)
 
     def pexpireat(self, name, when):
@@ -662,6 +706,17 @@ class StrictRedis(object):
             ms = int(when.microsecond / 1000)
             when = int(mod_time.mktime(when.timetuple())) * 1000 + ms
         return self.execute_command('PEXPIREAT', name, when)
+
+    def psetex(self, name, time_ms, value):
+        """
+        Set the value of key ``name`` to ``value`` that expires in ``time_ms``
+        milliseconds. ``time_ms`` can be represented by an integer or a Python
+        timedelta object
+        """
+        if isinstance(time_ms, datetime.timedelta):
+            ms = int(time_ms.microseconds / 1000)
+            time_ms = (time_ms.seconds + time_ms.days * 24 * 3600) * 1000 + ms
+        return self.execute_command('PSETEX', name, time_ms, value)
 
     def pttl(self, name):
         "Returns the number of milliseconds until the key ``name`` will expire"
@@ -681,9 +736,38 @@ class StrictRedis(object):
         "Rename key ``src`` to ``dst`` if ``dst`` doesn't already exist"
         return self.execute_command('RENAMENX', src, dst)
 
-    def set(self, name, value):
-        "Set the value at key ``name`` to ``value``"
-        return self.execute_command('SET', name, value)
+    def set(self, name, value, ex=None, px=None, nx=False, xx=False):
+        """
+        Set the value at key ``name`` to ``value``
+
+        ``ex`` sets an expire flag on key ``name`` for ``ex`` seconds.
+
+        ``px`` sets an expire flag on key ``name`` for ``px`` milliseconds.
+
+        ``nx`` if set to True, set the value at key ``name`` to ``value`` if it
+            does not already exist.
+
+        ``xx`` if set to True, set the value at key ``name`` to ``value`` if it
+            already exists.
+        """
+        pieces = [name, value]
+        if ex:
+            pieces.append('EX')
+            if isinstance(ex, datetime.timedelta):
+                ex = ex.seconds + ex.days * 24 * 3600
+            pieces.append(ex)
+        if px:
+            pieces.append('PX')
+            if isinstance(px, datetime.timedelta):
+                ms = int(px.microseconds / 1000)
+                px = (px.seconds + px.days * 24 * 3600) * 1000 + ms
+            pieces.append(px)
+
+        if nx:
+            pieces.append('NX')
+        if xx:
+            pieces.append('XX')
+        return self.execute_command('SET', *pieces)
     __setitem__ = set
 
     def setbit(self, name, offset, value):
@@ -898,7 +982,7 @@ class StrictRedis(object):
         return self.execute_command('RPUSHX', name, value)
 
     def sort(self, name, start=None, num=None, by=None, get=None,
-             desc=False, alpha=False, store=None):
+             desc=False, alpha=False, store=None, groups=False):
         """
         Sort and return the list, set or sorted set at ``name``.
 
@@ -917,6 +1001,11 @@ class StrictRedis(object):
 
         ``store`` allows for storing the result of the sort into
             the key ``store``
+
+        ``groups`` if set to True and if ``get`` contains at least two
+            elements, sort will return a list of tuples, each containing the
+            values fetched from the arguments to ``get``.
+
         """
         if (start is not None and num is None) or \
                 (num is not None and start is None):
@@ -949,7 +1038,15 @@ class StrictRedis(object):
         if store is not None:
             pieces.append('STORE')
             pieces.append(store)
-        return self.execute_command('SORT', *pieces)
+
+        if groups:
+            if not get or isinstance(get, basestring) or len(get) < 2:
+                raise DataError('when using "groups" the "get" argument '
+                                'must be specified and contain at least '
+                                'two keys')
+
+        options = {'groups': len(get) if groups else None}
+        return self.execute_command('SORT', *pieces, **options)
 
     #### SET COMMANDS ####
     def sadd(self, name, *values):
@@ -1218,7 +1315,7 @@ class StrictRedis(object):
     def _zaggregate(self, command, dest, keys, aggregate=None):
         pieces = [command, dest, len(keys)]
         if isinstance(keys, dict):
-            keys, weights = dictkeys(keys), dictvalues(keys)
+            keys, weights = iterkeys(keys), itervalues(keys)
         else:
             weights = None
         pieces.extend(keys)
@@ -1363,6 +1460,7 @@ class StrictRedis(object):
         """
         return Script(self, script)
 
+
 class Redis(StrictRedis):
     """
     Provides backwards compatibility with older versions of redis-py that
@@ -1474,7 +1572,7 @@ class PubSub(object):
             if self.connection and (self.channels or self.patterns):
                 self.connection.disconnect()
             self.reset()
-        except:
+        except Exception:
             pass
 
     def reset(self):
@@ -1632,7 +1730,7 @@ class BasePipeline(object):
     def __del__(self):
         try:
             self.reset()
-        except:
+        except Exception:
             pass
 
     def __len__(self):
@@ -1779,8 +1877,15 @@ class BasePipeline(object):
             starmap(connection.pack_command,
                     [args for args, options in commands]))
         connection.send_packed_command(all_cmds)
-        response = [self.parse_response(connection, args[0], **options)
-                    for args, options in commands]
+
+        response = []
+        for args, options in commands:
+            try:
+                response.append(
+                    self.parse_response(connection, args[0], **options))
+            except ResponseError:
+                response.append(sys.exc_info()[1])
+
         if raise_on_error:
             self.raise_first_error(response)
         return response
@@ -1881,7 +1986,8 @@ class Script(object):
 
     def __call__(self, keys=[], args=[], client=None):
         "Execute the script, passing any required ``args``"
-        client = client or self.registered_client
+        if client is None:
+            client = self.registered_client
         args = tuple(keys) + tuple(args)
         # make sure the Redis server knows about the script
         if isinstance(client, BasePipeline):
