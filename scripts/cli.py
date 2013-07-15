@@ -152,9 +152,12 @@ class CommandLine: #/*{{{*/
         self.db = db
         self.actions = {}
         self.done = False
+        self.working_path = None
+
         self.__add_action(Action("b64s", self.b64_encode).with_num_args(1).with_usage("<string> - base64 encodes the string (standard)"))
         self.__add_action(Action("b64u", self.b64_encode_url_safe).with_num_args(1).with_usage("<string> - base64 encodes the string (url-safe)"))
         self.__add_action(Action("b64", self.b64_decode).with_num_args(1).with_usage("<string> - attempts to perform a base64 decode on the string (tries standard then url-safe)"))
+        self.__add_action(Action("cd", self.cd).with_min_args(0).with_max_args(1).with_usage("[key] - switch the \"working path\" to this prefix"))
         self.__add_action(Action("clean", self.clean).with_min_args(1).with_usage("<key_expr [key_expr ...]> - removes all entries matching the"))
         self.__add_action(Action("close", self.close).with_num_args(0).with_usage("- closes the connection to the database and opens the connection dialog"))
         self.__add_action(Action("del", self.delete).with_num_args(1).with_usage("<key> - remove string entry"))
@@ -167,6 +170,7 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("hset", self.hash_set).with_num_args(3).with_usage("<key> <field> <value> - set hash entry"))
         self.__add_action(Action("info", self.info).with_num_args(0).with_usage("- print redis server info"))
         self.__add_action(Action("keys", self.keys).with_min_args(0).with_max_args(1).with_usage("[regex] - list all keys matching optional regex (all keys if no regex supplied)"))
+        self.__add_action(Action("ls", self.ls).with_num_args(0).with_usage("- lists keys and unique path-like prefixes of keys"))
         self.__add_action(Action("now", self.now).with_num_args(0).with_usage("- format the current time"))
         self.__add_action(Action("quit", self.quit).with_num_args(0).with_usage("- exit redis CLI"))
         self.__add_action(Action("rename", self.rename).with_num_args(2).with_usage("<key_name> <new_name> - renames a key"))
@@ -376,6 +380,50 @@ class CommandLine: #/*{{{*/
             return "key '%s' represents a %s, not a hash" % (key, key_type)
         else:
             return self.db.redis().hget(key, field)
+
+    def cd(self, path=None):
+        if path is not None:
+            path = path.rstrip("/") + "/"
+            path_match = path + "*"
+            matches = self.db.redis().keys(path_match)
+            if matches is None or len(matches) < 1:
+                return "Path '%s' not found" % path
+            else:
+                self.working_path = path
+        else:
+            self.working_path = ""
+        return "Working Path: " + self.working_path
+
+    # We need a number of improvements for this capability
+    # - Need to summarize keys at the level of the working path, but we need
+    #   to print the names of the keys without the working path as a prefix.
+    #   Consider updating self.db.display_entries to support paths.
+    def ls(self):
+        #key = trim_quotes(key)
+        if self.working_path is None:
+            matches = self.db.redis().keys("*")
+        else:
+            matches = self.db.redis().keys(self.working_path + "*")
+            matches = list(map(lambda s: s.replace(self.working_path, "", 1), matches))
+        if matches is None:
+            return "no keys found"
+        keys = []
+        path_map = {}
+        for match in matches:
+            parts = match.split("/")
+            key = parts[0]
+            if len(parts) > 1:
+                key += "/"
+                if not path_map.has_key(key):
+                    path_map[key] = 0
+                path_map[key] += 1
+            else:
+                keys.append(key)
+        map_summary = ""
+        for key in path_map.keys():
+            map_summary += "  [%s] PATH> %d\n" % (key, path_map[key])
+        return map_summary + self.db.display_entries(keys)
+
 #/*}}}*/
 
 def select_db(): #/*{{{*/
