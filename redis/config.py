@@ -64,11 +64,15 @@ def find_configs():
         config_files.append(path)
     return sorted(config_files)
 
-def select_config(config_files):
+def select_config(config_files, use_index=None):
     file_list = sorted(config_files)
     file_count = len(file_list)
     config_file = None
     op = "quit"
+
+    if (use_index is not None) and (len(config_files) > use_index):
+        return ("file", config_files[use_index])
+
     while config_file is None:
         try:
             print "Select file or enter location. Type 'quit' to exit:"
