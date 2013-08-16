@@ -92,7 +92,7 @@ class ConnectionThread(threading.Thread):
 		
 			self.iteration_count += 1
 
-def test_connections(): #/*{{{*/
+def test_connections(thread_count, iterations): #/*{{{*/
 	quit = True
 
 	op,path = config.select_config(config.find_configs())
@@ -105,9 +105,6 @@ def test_connections(): #/*{{{*/
 	last_connect = 0.0
 
 	threads = []
-
-	thread_count = 1000
-	iterations = 10
 
 	start_time = time.time() + 1.0
 
@@ -157,8 +154,23 @@ def test_connections(): #/*{{{*/
 	return quit
 #/*}}}*/
 
+def usage(message=None):
+	if message is not None:
+		print "E:", message
+	print "Usage: ", os.path.basename(sys.argv[0]), "<thread_count> <iterations>"
+	sys.exit(1)
+
 def main():
-	test_connections()
+	if len(sys.argv) != 3:
+		usage("wrong number of arguments")
+
+	try:
+		thread_count = int(sys.argv[1])
+		iterations = int(sys.argv[2])
+	except ValueError, e:
+		usage("arguments must be integer values")
+
+	test_connections(thread_count, iterations)
 
 if __name__ == "__main__":
 	main()
