@@ -298,8 +298,8 @@ class CommandLine: #/*{{{*/
     def info(self):
         info = self.db.redis().info()
         maxKeyLen = max(map(len, info.keys()))
-        for k,v in info.items():
-            print str(k).rjust(maxKeyLen + 1), ":", v
+        for k,v in sorted(info.items()):
+            print str(k + " ").ljust(maxKeyLen + 1, "-"), v
         return "Info Displayed"
 
     def keys(self, key="*"):

@@ -188,7 +188,6 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
         average_read_ms = total_read_ms / thread_count
         average_write_ms = total_write_ms / thread_count
 
-        #info = threads[len(threads) - (len(threads) / 4)].info
         info = threads[0].conn.execute_command('INFO')
         maxKeyLen = max(map(len, info.keys()))
         
