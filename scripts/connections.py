@@ -14,6 +14,12 @@ import time
 import traceback
 
 # Helper Functions /*{{{*/
+def usage(message=None):
+    if message is not None:
+        print "E:", message
+    print "Usage: ", os.path.basename(sys.argv[0]), "<thread_count> <iterations> [redis_config_index]"
+    sys.exit(1)
+
 def trim_quotes(string):
     result = string
     if len(string) < 1:
@@ -36,7 +42,7 @@ def format_int(x):
     return "%d%s" % (x, result)
 #/*}}}*/
 
-class ConnectionThread(threading.Thread):
+class ConnectionThread(threading.Thread): #/*{{{*/
     def __init__(self, iterations, connection_id, cfg, start_time):
         threading.Thread.__init__(self)
 
@@ -68,9 +74,14 @@ class ConnectionThread(threading.Thread):
     
     def run(self):
         try:
-            time.sleep(self.start_time - time.time())
+            delay = self.start_time - time.time()
+
+            if delay > 0.0:
+                time.sleep(self.start_time - time.time())
 
             start = time.time()
+            thread_start = start
+
             conn = redis.Redis(host=self.cfg['host'], port=int(self.cfg['port']))
 
             if self.cfg.has_key('auth'):
@@ -78,9 +89,10 @@ class ConnectionThread(threading.Thread):
 
             end = time.time()
             self.connect_time = (end - start) * 1000.0
-
             
             sys.stdout.write("Connection # %d established in %f ms\n" % (self.connection_id, self.connect_time))
+
+            key = "THREAD-" + str(self.connection_id)
 
             for i in range (0, self.iterations):
                 start = time.time()
@@ -89,7 +101,7 @@ class ConnectionThread(threading.Thread):
                 read_ms = (end - start) * 1000.0
                 
                 start = time.time()
-                conn.execute_command('INCR', 'COUNT')
+                conn.execute_command('INCR', key)
                 end = time.time()
                 write_ms = (end - start) * 1000.0
 
@@ -99,8 +111,21 @@ class ConnectionThread(threading.Thread):
                 self.total_write_ms += write_ms
             
                 self.iteration_count += 1
+
+
         except redis.ConnectionError, e:
             self.failed = True
+
+        thread_end = time.time()
+
+        thread_time = thread_end - thread_start
+
+        fail_msg = ""
+        if self.failed:
+            fail_msg = "[FAILED]"
+
+        sys.stdout.write("Connection # %d ran for %f ms %s\n" % (self.connection_id, thread_time, fail_msg))
+#/*}}}*/
 
 def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*/
     quit = True
@@ -116,7 +141,7 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
 
     threads = []
 
-    start_time = time.time() + 1.0
+    start_time = time.time() + (thread_count / 500.0)
 
     total_conn_ms = 0.0
     total_read_ms = 0.0
@@ -130,9 +155,17 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
             threads.append(thread)
             conn_id += 1
 
+        sys.stdout.write("Starting %d threads...\n" % thread_count)
         for thread in threads:
             thread.start()
+        sys.stdout.write("All threads started.\n")
 
+        while time.time() < start_time:
+            wait = start_time - time.time()
+            sys.stdout.write("T - %f\n" % wait)
+            time.sleep(0.25)
+
+        sys.stdout.write("Waiting for threads to complete...\n")
         for thread in threads:
             thread.join()
 
@@ -168,12 +201,6 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
 
     return quit
 #/*}}}*/
-
-def usage(message=None):
-    if message is not None:
-        print "E:", message
-    print "Usage: ", os.path.basename(sys.argv[0]), "<thread_count> <iterations> [redis_config_index]"
-    sys.exit(1)
 
 def main():
     if len(sys.argv) < 3 or len(sys.argv) > 4:
