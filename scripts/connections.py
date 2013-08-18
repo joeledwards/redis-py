@@ -147,7 +147,7 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
 
     threads = []
 
-    start_time = time.time() + (thread_count / 500.0)
+    start_time = time.time() + (thread_count / 2000.0)
 
     total_conn_ms = 0.0
     total_read_ms = 0.0
