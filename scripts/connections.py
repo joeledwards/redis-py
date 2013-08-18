@@ -47,6 +47,8 @@ class ConnectionThread(threading.Thread): #/*{{{*/
         threading.Thread.__init__(self)
 
         self.cfg = cfg
+        self.conn = None
+
         self.connection_id = connection_id
         self.iterations = iterations
         self.start_time = start_time
@@ -56,6 +58,8 @@ class ConnectionThread(threading.Thread): #/*{{{*/
         self.total_write_ms = 0.0
         self.iteration_count = 0
         self.failed = False
+
+        self.info = None
 
     def get_connect_time(self):
         return self.connect_time
@@ -83,8 +87,9 @@ class ConnectionThread(threading.Thread): #/*{{{*/
             thread_start = start
 
             conn = redis.Redis(host=self.cfg['host'], port=int(self.cfg['port']))
+            self.conn = conn
 
-            if self.cfg.has_key('auth'):
+            if self.cfg.has_key('auth') and (self.cfg['auth'] is not None):
                 conn.execute_command('AUTH', self.cfg['auth'])
 
             end = time.time()
@@ -96,7 +101,7 @@ class ConnectionThread(threading.Thread): #/*{{{*/
 
             for i in range (0, self.iterations):
                 start = time.time()
-                previous_value = conn.execute_command('GET', 'COUNT')
+                previous_value = conn.execute_command('GET', key)
                 end = time.time()
                 read_ms = (end - start) * 1000.0
                 
@@ -112,7 +117,6 @@ class ConnectionThread(threading.Thread): #/*{{{*/
             
                 self.iteration_count += 1
 
-
         except redis.ConnectionError, e:
             self.failed = True
 
@@ -123,6 +127,8 @@ class ConnectionThread(threading.Thread): #/*{{{*/
         fail_msg = ""
         if self.failed:
             fail_msg = "[FAILED]"
+
+        self.info = conn.execute_command('INFO')
 
         sys.stdout.write("Connection # %d ran for %f ms %s\n" % (self.connection_id, thread_time, fail_msg))
 #/*}}}*/
@@ -155,14 +161,14 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
             threads.append(thread)
             conn_id += 1
 
-        sys.stdout.write("Starting %d threads...\n" % thread_count)
+        sys.stdout.write("Starting threads...\n")
         for thread in threads:
             thread.start()
-        sys.stdout.write("All threads started.\n")
+        sys.stdout.write("%d threads started.\n" % thread_count)
 
-        while time.time() < start_time:
+        while (start_time - time.time()) > 0.25:
             wait = start_time - time.time()
-            sys.stdout.write("T - %f\n" % wait)
+            sys.stdout.write("T -%f\n" % wait)
             time.sleep(0.25)
 
         sys.stdout.write("Waiting for threads to complete...\n")
@@ -182,8 +188,15 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
         average_read_ms = total_read_ms / thread_count
         average_write_ms = total_write_ms / thread_count
 
-        sys.stdout.write("\nAverages: [connect %f ms] [read %f ms] [write %f ms] (%d failures)\n" % (average_conn_ms, average_read_ms, average_write_ms, failure_count))
-        sys.exit(0)
+        #info = threads[len(threads) - (len(threads) / 4)].info
+        info = threads[0].conn.execute_command('INFO')
+        maxKeyLen = max(map(len, info.keys()))
+        
+        for k,v in sorted(info.items()):
+            print str(k + " ").ljust(maxKeyLen + 1, "-"), v
+
+        sys.stdout.write("\n%s clients connected\n" % info['connected_clients'])
+        sys.stdout.write("\nAverages: [connect %f ms] [read %f ms] [write %f ms] (%d failed)\n" % (average_conn_ms, average_read_ms, average_write_ms, failure_count))
 
     except KeyError, ex:
         print "Malformed config key '%s' in %s" % (str(ex), path)
@@ -221,3 +234,4 @@ def main():
 if __name__ == "__main__":
     main()
 
+    #sys.exit(0)
