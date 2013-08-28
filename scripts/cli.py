@@ -38,7 +38,7 @@ def format_int(x):
 class Database: #/*{{{*/
     def __init__(self, cfg):
         self.db = redis.Redis(host=cfg['host'], port=int(cfg['port']))
-        if cfg.has_key('auth'):
+        if cfg['auth'] is not None:
             print self.db.execute_command('AUTH', cfg['auth'])
 
     def redis(self):
@@ -296,11 +296,11 @@ class CommandLine: #/*{{{*/
             return "key for wrong type"
 
     def info(self):
-            info = self.db.redis().info()
-            maxKeyLen = max(map(len, info.keys()))
-            for k,v in info.items():
-                print str(k).rjust(maxKeyLen + 1), ":", v
-            return "Info Displayed"
+        info = self.db.redis().info()
+        maxKeyLen = max(map(len, info.keys()))
+        for k,v in sorted(info.items()):
+            print str(k + " ").ljust(maxKeyLen + 1, "-"), v
+        return "Info Displayed"
 
     def keys(self, key="*"):
         expr = trim_quotes(key)
