@@ -50,6 +50,8 @@ class Database: #/*{{{*/
         for key in keys:
             key_type = self.db.type(key).lower()
             deleted = True
+            remove_count = 1
+            failure_count = 0
             if key_type == "none":
                 print "  key '%s' not found" % key
                 deleted = False
@@ -62,11 +64,14 @@ class Database: #/*{{{*/
                 status = self.db.ltrim(key, 0, 0)
                 status = self.db.lpop(key)
             elif key_type == "hash":
-                value = sorted(self.db.hkeys(key))
-                status = self.db.hdel(key, "*")
+                fields = self.db.hkeys(key)
+                value = str(len(fields)) + " fields"
+                status,remove_count,failed_count = self.remove_hash(key, fields)
             else:
                 result = "key '%s' type %s not supported" % (key, key_type)
                 deleted = False
+                failure_count = 1
+                remove_count = 0
 
             if deleted:
                 valueStr = str(value)
@@ -76,11 +81,34 @@ class Database: #/*{{{*/
                 if (len(statusStr) > 32):
                     statusStr = statusStr[:28] + " ..."
                 print "  deleting (result:%s) : [%s] %s> %s" % (statusStr, key, key_type, valueStr)
-                removed += 1
+                removed += remove_count
             else:
-                failed += 1
+                failed += failure_count
 
         return "deleted %d of %d keys (%d failures)" % (removed, len(keys), failed)
+
+    def remove_hash(self, key, fields):
+        removed = 1
+        failed = 0
+        for field in fields:
+            value = self.db.hget(key,field)
+            removed = self.db.hdel(key, field)
+            if removed > 0:
+                fieldStr = str(field)
+                if (len(fieldStr) > 32):
+                    fieldStr = fieldStr[:30] + " ..."
+                valueStr = str(field)
+                if (len(valueStr) > 64):
+                    valueStr = valueStr[:60] + " ..."
+                print "    deleted [%s : %s] hash-field > %s" % (key, fieldStr, valueStr)
+            else:
+                failed += 1
+                print "    retained [%s : %s] hash-field" % (key, field)
+        removed = 1
+        if (failed > 0):
+            removed = 0
+        status = removed
+        return (status,removed,failed)
 
     def display_entries(self, keys):
         for key in keys:
