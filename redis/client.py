@@ -109,6 +109,21 @@ def parse_info(response):
     return info
 
 
+def parse_sentinel(response, **options):
+    "Parse the result of Redis's SENTINEL command"
+    output = []
+    parse = options['parse']
+
+    if parse == 'SENTINEL_INFO':
+        for sub_list in response:
+            it = iter(sub_list)
+            output.append(dict(izip(it, it)))
+    else:
+        output = response
+
+    return output
+
+
 def pairs_to_dict(response):
     "Create a dict given a list of key/value pairs"
     it = iter(response)
@@ -244,7 +259,8 @@ class StrictRedis(object):
             'RANDOMKEY': lambda r: r and r or None,
             'SCRIPT': parse_script,
             'SET': lambda r: r and nativestr(r) == 'OK',
-            'TIME': lambda x: (int(x[0]), int(x[1]))
+            'TIME': lambda x: (int(x[0]), int(x[1])),
+            'SENTINEL': parse_sentinel
         }
     )
 
@@ -487,6 +503,14 @@ class StrictRedis(object):
         """
         return self.execute_command('SAVE')
 
+    def sentinel(self, *args):
+        "Redis Sentinel's SENTINEL command"
+        if args[0] in ['masters', 'slaves', 'sentinels']:
+            parse = 'SENTINEL_INFO'
+        else:
+            parse = 'SENTINEL'
+        return self.execute_command('SENTINEL', *args, **{'parse': parse})
+
     def shutdown(self):
         "Shutdown the server"
         try:
@@ -554,6 +578,13 @@ class StrictRedis(object):
         "Delete one or more keys specified by ``names``"
         return self.execute_command('DEL', *names)
     __delitem__ = delete
+
+    def dump(self, name):
+        """
+        Return a serialized version of the value stored at the specified key.
+        If key does not exist a nil bulk reply is returned.
+        """
+        return self.execute_command('DUMP', name)
 
     def exists(self, name):
         "Returns a boolean indicating whether key ``name`` exists"
@@ -735,6 +766,13 @@ class StrictRedis(object):
     def renamenx(self, src, dst):
         "Rename key ``src`` to ``dst`` if ``dst`` doesn't already exist"
         return self.execute_command('RENAMENX', src, dst)
+
+    def restore(self, name, ttl, value):
+        """
+        Create a key using the provided serialized value, previously obtained
+        using DUMP.
+        """
+        return self.execute_command('RESTORE', name, ttl, value)
 
     def set(self, name, value, ex=None, px=None, nx=False, xx=False):
         """
@@ -1155,6 +1193,10 @@ class StrictRedis(object):
         return self.execute_command('ZCARD', name)
 
     def zcount(self, name, min, max):
+        """
+        Returns the number of elements in the sorted set at key ``name`` with
+        a score between ``min`` and ``max``.
+        """
         return self.execute_command('ZCOUNT', name, min, max)
 
     def zincrby(self, name, value, amount=1):
