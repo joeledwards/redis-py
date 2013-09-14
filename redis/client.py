@@ -109,25 +109,69 @@ def parse_info(response):
     return info
 
 
+SENTINEL_STATE_TYPES = {
+    'can-failover-its-master': int,
+    'info-refresh': int,
+    'last-hello-message': int,
+    'last-ok-ping-reply': int,
+    'last-ping-reply': int,
+    'master-link-down-time': int,
+    'master-port': int,
+    'num-other-sentinels': int,
+    'num-slaves': int,
+    'o-down-time': int,
+    'pending-commands': int,
+    'port': int,
+    'quorum': int,
+    's-down-time': int,
+    'slave-priority': int,
+}
+
+
+def parse_sentinel_state(item):
+    result = pairs_to_dict_typed(item, SENTINEL_STATE_TYPES)
+    flags = set(result['flags'].split(','))
+    for name, flag in (('is_master', 'master'), ('is_slave', 'slave'),
+                       ('is_sdown', 's_down'), ('is_odown', 'o_down'),
+                       ('is_sentinel', 'sentinel'),
+                       ('is_disconnected', 'disconnected'),
+                       ('is_master_down', 'master_down')):
+        result[name] = flag in flags
+    return result
+
+
 def parse_sentinel(response, **options):
     "Parse the result of Redis's SENTINEL command"
-    output = []
-    parse = options['parse']
-
+    parse = options.get('parse')
     if parse == 'SENTINEL_INFO':
-        for sub_list in response:
-            it = iter(sub_list)
-            output.append(dict(izip(it, it)))
-    else:
-        output = response
-
-    return output
+        return [parse_sentinel_state(item) for item in response]
+    elif parse == 'SENTINEL_INFO_MASTERS':
+        result = {}
+        for item in response:
+            state = parse_sentinel_state(item)
+            result[state['name']] = state
+        return result
+    elif parse == 'SENTINEL_ADDR_PORT':
+        if response is None:
+            return
+        return response[0], int(response[1])
+    return response
 
 
 def pairs_to_dict(response):
     "Create a dict given a list of key/value pairs"
     it = iter(response)
     return dict(izip(it, it))
+
+
+def pairs_to_dict_typed(response, type_info):
+    it = iter(response)
+    result = {}
+    for key, value in izip(it, it):
+        if key in type_info:
+            value = type_info[key](value)
+        result[key] = value
+    return result
 
 
 def zset_score_pairs(response, **options):
@@ -510,6 +554,26 @@ class StrictRedis(object):
         else:
             parse = 'SENTINEL'
         return self.execute_command('SENTINEL', *args, **{'parse': parse})
+
+    def sentinel_masters(self):
+        "Returns a dictionary containing the master's state."
+        return self.execute_command('SENTINEL', 'masters',
+                                    parse='SENTINEL_INFO_MASTERS')
+
+    def sentinel_slaves(self, service_name):
+        "Returns a list of slaves for ``service_name``"
+        return self.execute_command('SENTINEL', 'slaves', service_name,
+                                    parse='SENTINEL_INFO')
+
+    def sentinel_sentinels(self, service_name):
+        "Returns a list of sentinels for ``service_name``"
+        return self.execute_command('SENTINEL', 'sentinels', service_name,
+                                    parse='SENTINEL_INFO')
+
+    def sentinel_get_master_addr_by_name(self, service_name):
+        "Returns a (host, port) pair for the given ``service_name``"
+        return self.execute_command('SENTINEL', 'get-master-addr-by-name',
+                                    service_name, parse='SENTINEL_ADDR_PORT')
 
     def shutdown(self):
         "Shutdown the server"
@@ -1289,20 +1353,20 @@ class StrictRedis(object):
         """
         return self.execute_command('ZREMRANGEBYSCORE', name, min, max)
 
-    def zrevrange(self, name, start, num, withscores=False,
+    def zrevrange(self, name, start, end, withscores=False,
                   score_cast_func=float):
         """
         Return a range of values from sorted set ``name`` between
-        ``start`` and ``num`` sorted in descending order.
+        ``start`` and ``end`` sorted in descending order.
 
-        ``start`` and ``num`` can be negative, indicating the end of the range.
+        ``start`` and ``end`` can be negative, indicating the end of the range.
 
         ``withscores`` indicates to return the scores along with the values
         The return type is a list of (value, score) pairs
 
         ``score_cast_func`` a callable used to cast the score return value
         """
-        pieces = ['ZREVRANGE', name, start, num]
+        pieces = ['ZREVRANGE', name, start, end]
         if withscores:
             pieces.append('withscores')
         options = {
@@ -1867,10 +1931,18 @@ class BasePipeline(object):
             starmap(connection.pack_command,
                     [args for args, options in cmds]))
         connection.send_packed_command(all_cmds)
-        # parse off the response for MULTI
-        self.parse_response(connection, '_')
-        # and all the other commands
         errors = []
+
+        # parse off the response for MULTI
+        # NOTE: we need to handle ResponseErrors here and continue
+        # so that we read all the additional command messages from
+        # the socket
+        try:
+            self.parse_response(connection, '_')
+        except ResponseError:
+            errors.append((0, sys.exc_info()[1]))
+
+        # and all the other commands
         for i, _ in enumerate(commands):
             try:
                 self.parse_response(connection, '_')
@@ -1959,9 +2031,11 @@ class BasePipeline(object):
 
     def execute(self, raise_on_error=True):
         "Execute all the commands in the current pipeline"
+        stack = self.command_stack
+        if not stack:
+            return []
         if self.scripts:
             self.load_scripts()
-        stack = self.command_stack
         if self.transaction or self.explicit_transaction:
             execute = self._execute_transaction
         else:
@@ -2101,7 +2175,7 @@ class Lock(object):
         sleep = self.sleep
         timeout = self.timeout
         while 1:
-            unixtime = int(mod_time.time())
+            unixtime = mod_time.time()
             if timeout:
                 timeout_at = unixtime + timeout
             else:

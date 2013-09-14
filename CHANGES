@@ -1,7 +1,24 @@
-* 2.8.0 (in development)
+* 2.8.1 (in development)
+    * Performance improvement for packing commands when using the PythonParser.
+      Thanks Guillaume Viot.
+    * Executing an empty pipeline transaction no longer sends MULTI/EXEC to
+      the server. Thanks EliFinkelshteyn.
+    * Errors when authenticating (incorrect password) and selecting a database
+      now close the socket.
+    * Full Sentinel support thanks to Vitja Makarov. Thanks!
+* 2.8.0
     * redis-py should play better with gevent when a gevent Timeout is raised.
       Thanks leifkb.
     * Added SENTINEL command. Thanks Anna Janackova.
+    * Fixed a bug where pipelines could potentially corrupt a connection
+      if the MULTI command generated a ResponseError. Thanks EliFinkelshteyn
+      for the report.
+    * Connections now call socket.shutdown() prior to socket.close() to
+      ensure communication ends immediately per the note at
+      http://docs.python.org/2/library/socket.html#socket.socket.close
+      Thanks to David Martin for pointing this out.
+    * Lock checks are now based on floats rather than ints. Thanks
+      Vitja Makarov.
 * 2.7.6
     * Added CONFIG RESETSTAT command. Thanks Yossi Gottlieb.
     * Fixed a bug introduced in 2.7.3 that caused issues with script objects
