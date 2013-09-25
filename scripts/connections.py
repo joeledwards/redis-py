@@ -222,6 +222,12 @@ def main():
         thread_count = int(sys.argv[1])
         iterations = int(sys.argv[2])
 
+        if thread_count < 1:
+            usage("thread count must be > 0")
+
+        if iterations < 1:
+            usage("iteration count must be > 0")
+
         redis_config = None
         if len(sys.argv) > 3:
             redis_config = int(sys.argv[3])
