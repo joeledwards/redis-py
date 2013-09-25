@@ -475,6 +475,8 @@ def select_db(): #/*{{{*/
             last_connect = connect_time
             again = False
             db = Database(cfg)
+            print "Connected to Redis server:  %(host)s:%(port)s" % cfg
+
             cli = CommandLine(db)
             cli.loop()
             quit = cli.done
