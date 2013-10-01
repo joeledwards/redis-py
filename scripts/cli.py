@@ -45,15 +45,8 @@ class Database: #/*{{{*/
         return self.db
 
     def flush_keys(self, keys):
-        deleted = 0
-        for key in keys:
-            self.db.expire(key, 1)
-            deleted += 1
-            print "expiring key '%s'" % key
-        return "expired %d keys" % deleted
-
-    def remove_strings(self, keys):
-        return "deleted %d keys" % self.db.delete(*keys)
+        deleted = self.db.delete(*keys)
+        return "deleted %d keys" % deleted
 
     def remove_keys(self, keys):
         removed = 0
@@ -211,7 +204,6 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("info", self.info).with_num_args(0).with_usage("- print redis server info"))
         self.__add_action(Action("keys", self.keys).with_min_args(0).with_max_args(1).with_usage("[regex] - list all keys matching optional regex (all keys if no regex supplied)"))
         self.__add_action(Action("ls", self.ls).with_num_args(0).with_usage("- lists keys and unique path-like prefixes of keys"))
-        self.__add_action(Action("mdel", self.mdel).with_min_args(1).with_usage("<key_expr [key_expr ...]> - multi deletion assuming all matching keys are string keys"))
         self.__add_action(Action("now", self.now).with_num_args(0).with_usage("- format the current time"))
         self.__add_action(Action("quit", self.quit).with_num_args(0).with_usage("- exit redis CLI"))
         self.__add_action(Action("rename", self.rename).with_num_args(2).with_usage("<key_name> <new_name> - renames a key"))
@@ -390,12 +382,6 @@ class CommandLine: #/*{{{*/
     def delete(self, key):
         key = trim_quotes(key)
         return self.db.remove_keys([key])
-
-    def mdel(self, *keys):
-        result = self.fetch_keys(*keys)
-        if type(result) != list:
-            return result
-        return self.db.remove_strings(result)
 
     def hash_delete(self, key, field):
         key = trim_quotes(key)
