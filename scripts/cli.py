@@ -44,6 +44,17 @@ class Database: #/*{{{*/
     def redis(self):
         return self.db
 
+    def flush_keys(self, keys):
+        deleted = 0
+        for key in keys:
+            self.db.expire(key, 1)
+            deleted += 1
+            print "expiring key '%s'" % key
+        return "expired %d keys" % deleted
+
+    def remove_strings(self, keys):
+        return "deleted %d keys" % self.db.delete(*keys)
+
     def remove_keys(self, keys):
         removed = 0
         failed = 0
@@ -186,12 +197,13 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("b64u", self.b64_encode_url_safe).with_num_args(1).with_usage("<string> - base64 encodes the string (url-safe)"))
         self.__add_action(Action("b64", self.b64_decode).with_num_args(1).with_usage("<string> - attempts to perform a base64 decode on the string (tries standard then url-safe)"))
         self.__add_action(Action("cd", self.cd).with_min_args(0).with_max_args(1).with_usage("[key] - switch the \"working path\" to this prefix"))
-        self.__add_action(Action("clean", self.clean).with_min_args(1).with_usage("<key_expr [key_expr ...]> - removes all entries matching the"))
+        self.__add_action(Action("clean", self.clean).with_min_args(1).with_usage("<key_expr [key_expr ...]> - removes all entries matching the key expressions with details"))
         self.__add_action(Action("close", self.close).with_num_args(0).with_usage("- closes the connection to the database and opens the connection dialog"))
         self.__add_action(Action("del", self.delete).with_num_args(1).with_usage("<key> - remove string entry"))
         self.__add_action(Action("engines", self.list_engines).with_num_args(0).with_usage(" - lists all engines"))
         self.__add_action(Action("engine", self.format_engine).with_num_args(1).with_usage("<engine-id> - prints a custom-formatted summary for this engine if it exists"))
         self.__add_action(Action("entries", self.list_entries).with_min_args(1).with_usage("<key_expr [key_expr ...]> - displays all entries matching the supplied key expressions"))
+        self.__add_action(Action("flush", self.flush).with_min_args(1).with_usage("<key_expr [key_expr ...]> - similar to clean, only showing minimal details, and attempting to delete as quickly as possible"))
         self.__add_action(Action("help", self.help).with_num_args(0).with_usage("- print the help message"))
         self.__add_action(Action("hdel", self.hash_delete).with_num_args(2).with_usage("<key> <field> - remove hash entry"))
         self.__add_action(Action("hkeys", self.hash_fields).with_num_args(1).with_usage("- list all fields associated with this hash"))
@@ -199,6 +211,7 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("info", self.info).with_num_args(0).with_usage("- print redis server info"))
         self.__add_action(Action("keys", self.keys).with_min_args(0).with_max_args(1).with_usage("[regex] - list all keys matching optional regex (all keys if no regex supplied)"))
         self.__add_action(Action("ls", self.ls).with_num_args(0).with_usage("- lists keys and unique path-like prefixes of keys"))
+        self.__add_action(Action("mdel", self.mdel).with_min_args(1).with_usage("<key_expr [key_expr ...]> - multi deletion assuming all matching keys are string keys"))
         self.__add_action(Action("now", self.now).with_num_args(0).with_usage("- format the current time"))
         self.__add_action(Action("quit", self.quit).with_num_args(0).with_usage("- exit redis CLI"))
         self.__add_action(Action("rename", self.rename).with_num_args(2).with_usage("<key_name> <new_name> - renames a key"))
@@ -258,6 +271,12 @@ class CommandLine: #/*{{{*/
         if type(result) != list:
             return result
         return self.db.remove_keys(result)
+
+    def flush(self, *keys):
+        result = self.fetch_keys(*keys)
+        if type(result) != list:
+            return result
+        return self.db.flush_keys(result)
 
     def list_entries(self, *keys):
         result = self.fetch_keys(*keys)
@@ -371,6 +390,12 @@ class CommandLine: #/*{{{*/
     def delete(self, key):
         key = trim_quotes(key)
         return self.db.remove_keys([key])
+
+    def mdel(self, *keys):
+        result = self.fetch_keys(*keys)
+        if type(result) != list:
+            return result
+        return self.db.remove_strings(result)
 
     def hash_delete(self, key, field):
         key = trim_quotes(key)
