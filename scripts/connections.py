@@ -149,9 +149,27 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
 
     start_time = time.time() + (thread_count / 2000.0)
 
+    all_conn_ms = []
+    min_conn_ms = 2.0 ** 31.0
+    med_conn_ms = 0.0
+    avg_conn_ms = 0.0
+    max_conn_ms = 0.0
     total_conn_ms = 0.0
+
+    all_read_ms = []
+    min_read_ms = 2.0 ** 31.0
+    med_read_ms = 0.0
+    avg_read_ms = 0.0
+    max_read_ms = 0.0
     total_read_ms = 0.0
+
+    all_write_ms = []
+    min_write_ms = 2.0 ** 31.0
+    med_write_ms = 0.0
+    avg_write_ms = 0.0
+    max_write_ms = 0.0
     total_write_ms = 0.0
+
     failure_count = 0
 
     try:
@@ -176,17 +194,30 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
             thread.join()
 
         for thread in threads:
+            all_conn_ms.append(thread.get_connect_time())
             total_conn_ms += thread.get_connect_time()
+            if thread.get_connect_time() > max_conn_ms:
+                max_conn_ms = thread.get_connect_time()
+            if thread.get_connect_time() < min_conn_ms:
+                min_conn_ms = thread.get_connect_time()
+
+            all_read_ms.append(thread.get_average_read_time())
             total_read_ms += thread.get_average_read_time()
+            if thread.get_average_read_time() > max_read_ms:
+                max_read_ms = thread.get_average_read_time()
+            if thread.get_average_read_time() < min_read_ms:
+                min_read_ms = thread.get_average_read_time()
+
+            all_write_ms.append(thread.get_average_write_time())
             total_write_ms += thread.get_average_write_time()
+            if thread.get_average_write_time() > max_write_ms:
+                max_write_ms = thread.get_average_write_time()
+            if thread.get_average_write_time() < min_write_ms:
+                min_write_ms = thread.get_average_write_time()
 
             if thread.failed:
                 sys.stdout.write("Connection # %d failed after %d iterations\n" % (thread.connection_id, thread.iteration_count))
                 failure_count += 1
-
-        average_conn_ms = total_conn_ms / thread_count
-        average_read_ms = total_read_ms / thread_count
-        average_write_ms = total_write_ms / thread_count
 
         info = threads[0].conn.execute_command('INFO')
         maxKeyLen = max(map(len, info.keys()))
@@ -194,8 +225,20 @@ def test_connections(thread_count, iterations, redis_config_index=None): #/*{{{*
         for k,v in sorted(info.items()):
             print str(k + " ").ljust(maxKeyLen + 1, "-"), v
 
+
+        avg_conn_ms = total_conn_ms / thread_count
+        avg_read_ms = total_read_ms / thread_count
+        avg_write_ms = total_write_ms / thread_count
+
+        med_conn_ms = sorted(all_conn_ms)[len(all_conn_ms) / 2]
+        med_read_ms = sorted(all_read_ms)[len(all_read_ms) / 2]
+        med_write_ms = sorted(all_write_ms)[len(all_write_ms) / 2]
+
         sys.stdout.write("\n%s clients connected\n" % info['connected_clients'])
-        sys.stdout.write("\nAverages: [connect %f ms] [read %f ms] [write %f ms] (%d failed)\n" % (average_conn_ms, average_read_ms, average_write_ms, failure_count))
+        sys.stdout.write("\nFailed: %d\n" % failure_count)
+        sys.stdout.write("Connect: [min %f ms] [median %f ms] [average %f ms] [max %f ms]\n" % (min_conn_ms, med_conn_ms, avg_conn_ms, max_conn_ms))
+        sys.stdout.write("Read:    [min %f ms] [median %f ms] [average %f ms] [max %f ms]\n" % (min_read_ms, med_read_ms, avg_read_ms, max_read_ms))
+        sys.stdout.write("Write:   [min %f ms] [median %f ms] [average %f ms] [max %f ms]\n" % (min_write_ms, med_write_ms, avg_write_ms, max_write_ms))
 
     except KeyError, ex:
         print "Malformed config key '%s' in %s" % (str(ex), path)

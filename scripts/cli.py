@@ -475,6 +475,8 @@ def select_db(): #/*{{{*/
     cfg = config.from_file(path)
     again = True
     last_connect = 0.0
+    db = None
+
     while again: 
         try:
             connect_time = time.time()
@@ -485,6 +487,11 @@ def select_db(): #/*{{{*/
 
             last_connect = connect_time
             again = False
+
+            if (db is not None):
+                del db
+                db = None
+
             db = Database(cfg)
             print "Connected to Redis server:  %(host)s:%(port)s" % cfg
 
@@ -504,10 +511,20 @@ def select_db(): #/*{{{*/
             again = True
         except KeyboardInterrupt, ex:
             print
+            again = True
+        except EOFError, ex:
+            print
+            sys.exit(0)
         except Exception, ex:
             print "An unknown error ocurred. Details: %s" % str(ex)
             traceback.print_exc(file=sys.stdout)
             sys.exit(1)
+
+        # if the exception was handled, we should clean up
+        # in preparation for re-creation of the conection
+        del db
+        db = None
+
     return quit
 #/*}}}*/
 
