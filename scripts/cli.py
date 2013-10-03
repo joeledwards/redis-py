@@ -36,13 +36,31 @@ def format_int(x):
 #/*}}}*/
 
 class Database: #/*{{{*/
-    def __init__(self, cfg):
-        self.db = redis.Redis(host=cfg['host'], port=int(cfg['port']))
-        if cfg['auth'] is not None:
-            print self.db.execute_command('AUTH', cfg['auth'])
+    def __init__(self, cfg, selected=0):
+        self.cfg = cfg
+        self.selected = selected
+        self.connect()
+
+    def connect(self):
+        host = self.cfg['host']
+        port = int(self.cfg['port'])
+        password = self.cfg['auth']
+        selected = self.selected
+        self.db = redis.Redis(host=host, port=port, password=password, db=selected)
 
     def redis(self):
         return self.db
+
+    def get_selected(self):
+        return self.selected
+
+    def select(self, index):
+        try:
+            self.selected = index
+            self.connect()
+            return "selected database %d" % index
+        except ValueError, e:
+            return "invalid database index '%d'" % index
 
     def flush_keys(self, keys):
         deleted = self.db.delete(*keys)
@@ -207,6 +225,8 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("now", self.now).with_num_args(0).with_usage("- format the current time"))
         self.__add_action(Action("quit", self.quit).with_num_args(0).with_usage("- exit redis CLI"))
         self.__add_action(Action("rename", self.rename).with_num_args(2).with_usage("<key_name> <new_name> - renames a key"))
+        self.__add_action(Action("select", self.select).with_num_args(1).with_usage("<db_index> - select database at db_index"))
+        self.__add_action(Action("selected", self.selected).with_num_args(0).with_usage("- shows which database is selected"))
         self.__add_action(Action("set", self.set).with_num_args(2).with_usage("<key> <value> - set string entry"))
         self.__add_action(Action("show", self.show).with_min_args(1).with_max_args(2).with_usage("<key> [field] - print value of this entry"))
         self.__add_action(Action("time", self.time).with_num_args(1).with_usage("<timestamp> - format the given timestamp"))
@@ -367,6 +387,15 @@ class CommandLine: #/*{{{*/
         key = trim_quotes(key)
         value = trim_quotes(value)
         return self.db.redis().set(key, value)
+
+    def selected(self):
+        return "current db is %d" % self.db.get_selected()
+
+    def select(self, db_index):
+        try:
+            return self.db.select(int(db_index))
+        except ValueError, e:
+            return self.db
 
     def rename(self, key_name, new_name):
         key_name = trim_quotes(key_name)
