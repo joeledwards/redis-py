@@ -110,7 +110,8 @@ class PythonParser(object):
         byte, response = byte_to_chr(response[0]), response[1:]
 
         if byte not in ('-', '+', ':', '$', '*'):
-            raise InvalidResponse("Protocol Error")
+            raise InvalidResponse("Protocol Error: %s, %s" %
+                                  (str(byte), str(response)))
 
         # server returned an error
         if byte == '-':
@@ -203,6 +204,8 @@ else:
 
 class Connection(object):
     "Manages TCP communication to and from a Redis server"
+    description_format = "Connection<host=%(host)s,port=%(port)s,db=%(db)s>"
+
     def __init__(self, host='localhost', port=6379, db=0, password=None,
                  socket_timeout=None, encoding='utf-8',
                  encoding_errors='strict', decode_responses=False,
@@ -218,6 +221,14 @@ class Connection(object):
         self.decode_responses = decode_responses
         self._sock = None
         self._parser = parser_class()
+        self._description_args = {
+            'host': self.host,
+            'port': self.port,
+            'db': self.db,
+        }
+
+    def __repr__(self):
+        return self.description_format % self._description_args
 
     def __del__(self):
         try:
@@ -345,6 +356,8 @@ class Connection(object):
 
 
 class UnixDomainSocketConnection(Connection):
+    description_format = "UnixDomainSocketConnection<path=%(path)s,db=%(db)s>"
+
     def __init__(self, path='', db=0, password=None,
                  socket_timeout=None, encoding='utf-8',
                  encoding_errors='strict', decode_responses=False,
@@ -359,6 +372,10 @@ class UnixDomainSocketConnection(Connection):
         self.decode_responses = decode_responses
         self._sock = None
         self._parser = parser_class()
+        self._description_args = {
+            'path': self.path,
+            'db': self.db,
+        }
 
     def _connect(self):
         "Create a Unix domain socket connection"
@@ -378,11 +395,20 @@ class UnixDomainSocketConnection(Connection):
                 (exception.args[0], self.path, exception.args[1])
 
 
-# TODO: add ability to block waiting on a connection to be released
 class ConnectionPool(object):
     "Generic connection pool"
     def __init__(self, connection_class=Connection, max_connections=None,
                  **connection_kwargs):
+        """
+        Create a connection pool. If max_connections is set, then this
+        object raises redis.ConnectionError when the pool's limit is reached.
+
+        By default, TCP connections are created connection_class is specified.
+        Use redis.UnixDomainSocketConnection for unix sockets.
+
+        Any additional keyword arguments are passed to the constructor of
+        connection_class.
+        """
         self.pid = os.getpid()
         self.connection_class = connection_class
         self.connection_kwargs = connection_kwargs
@@ -390,6 +416,12 @@ class ConnectionPool(object):
         self._created_connections = 0
         self._available_connections = []
         self._in_use_connections = set()
+
+    def __repr__(self):
+        return "%s<%s>" % (
+            type(self).__name__,
+            self.connection_class.description_format % self.connection_kwargs,
+        )
 
     def _checkpid(self):
         if self.pid != os.getpid():
@@ -499,6 +531,12 @@ class BlockingConnectionPool(object):
         # Keep a list of actual connection instances so that we can
         # disconnect them later.
         self._connections = []
+
+    def __repr__(self):
+        return "%s<%s>" % (
+            type(self).__name__,
+            self.connection_class.description_format % self.connection_kwargs,
+        )
 
     def _checkpid(self):
         """

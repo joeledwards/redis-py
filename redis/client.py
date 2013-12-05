@@ -240,6 +240,21 @@ def parse_script(response, **options):
     return response
 
 
+def parse_scan(response, **options):
+    return response
+
+
+def parse_hscan(response, **options):
+    cursor, r = response
+    return cursor, r and pairs_to_dict(r) or {}
+
+
+def parse_zscan(response, **options):
+    score_cast_func = options.get('score_cast_func', float)
+    it = iter(response[1])
+    return [response[0], list(izip(it, imap(score_cast_func, it)))]
+
+
 class StrictRedis(object):
     """
     Implementation of the Redis protocol.
@@ -304,7 +319,11 @@ class StrictRedis(object):
             'SCRIPT': parse_script,
             'SET': lambda r: r and nativestr(r) == 'OK',
             'TIME': lambda x: (int(x[0]), int(x[1])),
-            'SENTINEL': parse_sentinel
+            'SENTINEL': parse_sentinel,
+            'SCAN': parse_scan,
+            'SSCAN': parse_scan,
+            'HSCAN': parse_hscan,
+            'ZSCAN': parse_zscan
         }
     )
 
@@ -367,6 +386,9 @@ class StrictRedis(object):
         self.connection_pool = connection_pool
 
         self.response_callbacks = self.__class__.RESPONSE_CALLBACKS.copy()
+
+    def __repr__(self):
+        return "%s<%s>" % (type(self).__name__, repr(self.connection_pool))
 
     def set_response_callback(self, command, callback):
         "Set a custom Response Callback"
@@ -641,7 +663,9 @@ class StrictRedis(object):
     def delete(self, *names):
         "Delete one or more keys specified by ``names``"
         return self.execute_command('DEL', *names)
-    __delitem__ = delete
+
+    def __delitem__(self, name):
+        self.delete(name)
 
     def dump(self, name):
         """
@@ -870,7 +894,9 @@ class StrictRedis(object):
         if xx:
             pieces.append('XX')
         return self.execute_command('SET', *pieces)
-    __setitem__ = set
+
+    def __setitem__(self, name, value):
+        self.set(name, value)
 
     def setbit(self, name, offset, value):
         """
@@ -1150,6 +1176,71 @@ class StrictRedis(object):
         options = {'groups': len(get) if groups else None}
         return self.execute_command('SORT', *pieces, **options)
 
+    #### SCAN COMMANDS ####
+    def scan(self, cursor=0, match=None, count=None):
+        """
+        Scan and return (nextcursor, keys)
+
+        ``match`` allows for filtering the keys by pattern
+
+        ``count`` allows for hint the minimum number of returns
+        """
+        pieces = [cursor]
+        if match is not None:
+            pieces.extend(['MATCH', match])
+        if count is not None:
+            pieces.extend(['COUNT', count])
+        return self.execute_command('SCAN', *pieces)
+
+    def sscan(self, name, cursor=0, match=None, count=None):
+        """
+        Scan and return (nextcursor, members_of_set)
+
+        ``match`` allows for filtering the keys by pattern
+
+        ``count`` allows for hint the minimum number of returns
+        """
+        pieces = [name, cursor]
+        if match is not None:
+            pieces.extend(['MATCH', match])
+        if count is not None:
+            pieces.extend(['COUNT', count])
+        return self.execute_command('SSCAN', *pieces)
+
+    def hscan(self, name, cursor=0, match=None, count=None):
+        """
+        Scan and return (nextcursor, dict)
+
+        ``match`` allows for filtering the keys by pattern
+
+        ``count`` allows for hint the minimum number of returns
+        """
+        pieces = [name, cursor]
+        if match is not None:
+            pieces.extend(['MATCH', match])
+        if count is not None:
+            pieces.extend(['COUNT', count])
+        return self.execute_command('HSCAN', *pieces)
+
+    def zscan(self, name, cursor=0, match=None, count=None,
+              score_cast_func=float):
+        """
+        Scan and return (nextcursor, pairs)
+
+        ``match`` allows for filtering the keys by pattern
+
+        ``count`` allows for hint the minimum number of returns
+
+        ``score_cast_func`` a callable used to cast the score return value
+        """
+        pieces = [name, cursor]
+        if match is not None:
+            pieces.extend(['MATCH', match])
+        if count is not None:
+            pieces.extend(['COUNT', count])
+        options = {'score_cast_func': score_cast_func}
+        return self.execute_command('ZSCAN', *pieces, **options)
+
     #### SET COMMANDS ####
     def sadd(self, name, *values):
         "Add ``value(s)`` to set ``name``"
@@ -1217,7 +1308,7 @@ class StrictRedis(object):
         return self.execute_command('SREM', name, *values)
 
     def sunion(self, keys, *args):
-        "Return the union of sets specifiued by ``keys``"
+        "Return the union of sets specified by ``keys``"
         args = list_or_args(keys, args)
         return self.execute_command('SUNION', *args)
 
@@ -1512,7 +1603,7 @@ class StrictRedis(object):
 
     def eval(self, script, numkeys, *keys_and_args):
         """
-        Execute the LUA ``script``, specifying the ``numkeys`` the script
+        Execute the Lua ``script``, specifying the ``numkeys`` the script
         will touch and the key names and argument values in ``keys_and_args``.
         Returns the result of the script.
 
@@ -1523,7 +1614,7 @@ class StrictRedis(object):
 
     def evalsha(self, sha, numkeys, *keys_and_args):
         """
-        Use the ``sha`` to execute a LUA script already registered via EVAL
+        Use the ``sha`` to execute a Lua script already registered via EVAL
         or SCRIPT LOAD. Specify the ``numkeys`` the script will touch and the
         key names and argument values in ``keys_and_args``. Returns the result
         of the script.
@@ -1548,21 +1639,21 @@ class StrictRedis(object):
         return self.execute_command('SCRIPT', 'FLUSH', **options)
 
     def script_kill(self):
-        "Kill the currently executing LUA script"
+        "Kill the currently executing Lua script"
         options = {'parse': 'KILL'}
         return self.execute_command('SCRIPT', 'KILL', **options)
 
     def script_load(self, script):
-        "Load a LUA ``script`` into the script cache. Returns the SHA."
+        "Load a Lua ``script`` into the script cache. Returns the SHA."
         options = {'parse': 'LOAD'}
         return self.execute_command('SCRIPT', 'LOAD', script, **options)
 
     def register_script(self, script):
         """
-        Register a LUA ``script`` specifying the ``keys`` it will touch.
+        Register a Lua ``script`` specifying the ``keys`` it will touch.
         Returns a Script object that is callable and hides the complexity of
         deal with scripts, keys, and shas. This is the preferred way to work
-        with LUA scripts.
+        with Lua scripts.
         """
         return Script(self, script)
 
@@ -2093,7 +2184,7 @@ class Pipeline(BasePipeline, Redis):
 
 
 class Script(object):
-    "An executable LUA script object returned by ``register_script``"
+    "An executable Lua script object returned by ``register_script``"
 
     def __init__(self, registered_client, script):
         self.registered_client = registered_client
@@ -2204,6 +2295,7 @@ class Lock(object):
             raise ValueError("Cannot release an unlocked lock")
         existing = float(self.redis.get(self.name) or 1)
         # if the lock time is in the future, delete the lock
-        if existing >= self.acquired_until:
-            self.redis.delete(self.name)
+        delete_lock = existing >= self.acquired_until
         self.acquired_until = None
+        if delete_lock:
+            self.redis.delete(self.name)
