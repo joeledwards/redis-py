@@ -1,7 +1,9 @@
+from __future__ import with_statement
 from itertools import chain
 import os
 import socket
 import sys
+import threading
 
 
 from redis._compat import (b, xrange, imap, byte_to_chr, unicode, bytes, long,
@@ -29,17 +31,27 @@ SYM_LF = b('\n')
 SYM_EMPTY = b('')
 
 
-class PythonParser(object):
-    "Plain Python parsing class"
-    MAX_READ_LENGTH = 1000000
-    encoding = None
-
+class BaseParser(object):
     EXCEPTION_CLASSES = {
         'ERR': ResponseError,
         'EXECABORT': ExecAbortError,
         'LOADING': BusyLoadingError,
         'NOSCRIPT': NoScriptError,
     }
+
+    def parse_error(self, response):
+        "Parse an error response"
+        error_code = response.split(' ')[0]
+        if error_code in self.EXCEPTION_CLASSES:
+            response = response[len(error_code) + 1:]
+            return self.EXCEPTION_CLASSES[error_code](response)
+        return ResponseError(response)
+
+
+class PythonParser(BaseParser):
+    "Plain Python parsing class"
+    MAX_READ_LENGTH = 1000000
+    encoding = None
 
     def __init__(self):
         self._fp = None
@@ -94,14 +106,6 @@ class PythonParser(object):
             raise ConnectionError("Error while reading from socket: %s" %
                                   (e.args,))
 
-    def parse_error(self, response):
-        "Parse an error response"
-        error_code = response.split(' ')[0]
-        if error_code in self.EXCEPTION_CLASSES:
-            response = response[len(error_code) + 1:]
-            return self.EXCEPTION_CLASSES[error_code](response)
-        return ResponseError(response)
-
     def read_response(self):
         response = self.read()
         if not response:
@@ -149,7 +153,7 @@ class PythonParser(object):
         return response
 
 
-class HiredisParser(object):
+class HiredisParser(BaseParser):
     "Parser class for connections using Hiredis"
     def __init__(self):
         if not HIREDIS_AVAILABLE:
@@ -194,6 +198,13 @@ class HiredisParser(object):
             if not buffer.endswith(SYM_LF):
                 continue
             response = self._reader.gets()
+        if isinstance(response, ResponseError):
+            response = self.parse_error(response.args[0])
+        # hiredis only knows about ResponseErrors.
+        # self.parse_error() might turn the exception into a ConnectionError
+        # which needs raising.
+        if isinstance(response, ConnectionError):
+            raise response
         return response
 
 if HIREDIS_AVAILABLE:
@@ -256,9 +267,14 @@ class Connection(object):
 
     def _connect(self):
         "Create a TCP socket connection"
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(self.socket_timeout)
-        sock.connect((self.host, self.port))
+        # in 2.6+ try to use IPv6/4 compatibility, else just original code
+        if hasattr(socket, 'create_connection'):
+            sock = socket.create_connection((self.host, self.port),
+                                            self.socket_timeout)
+        else:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.socket_timeout)
+            sock.connect((self.host, self.port))
         return sock
 
     def _error_message(self, exception):
@@ -416,6 +432,7 @@ class ConnectionPool(object):
         self._created_connections = 0
         self._available_connections = []
         self._in_use_connections = set()
+        self._check_lock = threading.Lock()
 
     def __repr__(self):
         return "%s<%s>" % (
@@ -425,9 +442,14 @@ class ConnectionPool(object):
 
     def _checkpid(self):
         if self.pid != os.getpid():
-            self.disconnect()
-            self.__init__(self.connection_class, self.max_connections,
-                          **self.connection_kwargs)
+            with self._check_lock:
+                if self.pid == os.getpid():
+                    # another thread already did the work while we waited
+                    # on the lock.
+                    return
+                self.disconnect()
+                self.__init__(self.connection_class, self.max_connections,
+                              **self.connection_kwargs)
 
     def get_connection(self, command_name, *keys, **options):
         "Get a connection from the pool"
@@ -519,6 +541,7 @@ class BlockingConnectionPool(object):
         # Get the current process id, so we can disconnect and reinstantiate if
         # it changes.
         self.pid = os.getpid()
+        self._check_lock = threading.Lock()
 
         # Create and fill up a thread safe queue with ``None`` values.
         self.pool = self.queue_class(max_connections)
@@ -543,17 +566,15 @@ class BlockingConnectionPool(object):
         Check the current process id.  If it has changed, disconnect and
         re-instantiate this connection pool instance.
         """
-        # Get the current process id.
         pid = os.getpid()
-
-        # If it hasn't changed since we were instantiated, then we're fine, so
-        # just exit, remaining connected.
-        if self.pid == pid:
-            return
-
-        # If it has changed, then disconnect and re-instantiate.
-        self.disconnect()
-        self.reinstantiate()
+        if self.pid != pid:
+            with self._check_lock:
+                if self.pid == os.getpid():
+                    # another thread already did the work while we waited
+                    # on the lock.
+                    return
+                self.disconnect()
+                self.reinstantiate()
 
     def make_connection(self):
         "Make a fresh connection."
