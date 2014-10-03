@@ -495,7 +495,11 @@ class CommandLine: #/*{{{*/
 
     def ttl(self, key):
         ttl_seconds = self.db.redis().ttl(key)
-        if ttl_seconds is None or ttl_seconds == -1:
+        if ttl_seconds is None:
+            if not self.db.redis().exists(key):
+                return "key '%s' doesn't exist" % key
+            return "key '%s' is not set to expire" % key
+        if ttl_seconds == -1:
             return "key '%s' is not set to expire" % key
         if ttl_seconds == -2:
             return "key '%s' doesn't exist" % key
