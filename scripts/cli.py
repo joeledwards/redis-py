@@ -508,7 +508,7 @@ class CommandLine: #/*{{{*/
 
     def ttls(self, key_expr):
         ttl_summary = ""
-        for key in self.db.redis().keys(key_expr):
+        for key in sorted(self.db.redis().keys(key_expr)):
             ttl_summary += "  %s\n" % self.ttl(key)
         return ttl_summary
 #/*}}}*/
