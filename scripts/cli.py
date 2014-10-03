@@ -231,6 +231,7 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("show", self.show).with_min_args(1).with_max_args(2).with_usage("<key> [field] - print value of this entry"))
         self.__add_action(Action("time", self.time).with_num_args(1).with_usage("<timestamp> - format the given timestamp"))
         self.__add_action(Action("ttl", self.ttl).with_num_args(1).with_usage("<key> - return the TTL (time to live) in seconds for this key"))
+        self.__add_action(Action("ttls", self.ttls).with_num_args(1).with_usage("<key_expr> - return the TTLs (time to live) in seconds for all keys matching the expression"))
 
     def __add_action(self, action):
         self.actions[action.name] = action
@@ -503,8 +504,13 @@ class CommandLine: #/*{{{*/
             return "key '%s' is not set to expire" % key
         if ttl_seconds == -2:
             return "key '%s' doesn't exist" % key
-        return "TTL for '%s' is %d s" % (key, ttl_seconds)
+        return "TTL for key '%s' is %d s" % (key, ttl_seconds)
 
+    def ttls(self, key_expr):
+        ttl_summary = ""
+        for key in self.db.redis().keys(key_expr):
+            ttl_summary += "  %s\n" % self.ttl(key)
+        return ttl_summary
 #/*}}}*/
 
 def select_db(): #/*{{{*/
