@@ -508,9 +508,10 @@ class CommandLine: #/*{{{*/
 
     def ttls(self, key_expr):
         ttl_summary = ""
-        for key in sorted(self.db.redis().keys(key_expr)):
-            ttl_summary += "  %s\n" % self.ttl(key)
-        return ttl_summary
+        keys = self.db.redis().keys(key_expr)
+        for key in sorted(keys):
+            print " ", self.ttl(key)
+        return "Evaluated %d keys" % len(keys)
 #/*}}}*/
 
 def select_db(): #/*{{{*/
