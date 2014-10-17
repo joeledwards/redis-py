@@ -4,13 +4,19 @@ import os
 import random
 import re
 import readline
-from redis import config
-from redis.exceptions import ResponseError
-import redis
 import shlex
 import sys
 import time
 import traceback
+
+script_path = os.path.abspath(os.path.realpath(__file__))
+script_dir = os.path.dirname(script_path)
+parent_dir = script_dir.rsplit("/", 1)[0]
+sys.path.insert(0, parent_dir)
+
+from redis import config
+from redis.exceptions import ResponseError
+import redis
 
 # Helper Functions /*{{{*/
 def trim_quotes(string):
