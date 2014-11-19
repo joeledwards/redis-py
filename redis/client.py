@@ -2142,10 +2142,10 @@ class PubSub(object):
             # previously listening to
             return command(*args)
 
-    def parse_response(self, block=True):
+    def parse_response(self, block=True, timeout=0):
         "Parse the response from a publish/subscribe command"
         connection = self.connection
-        if not block and not connection.can_read():
+        if not block and not connection.can_read(timeout=timeout):
             return None
         return self._execute(connection, connection.read_response)
 
@@ -2216,9 +2216,15 @@ class PubSub(object):
             if response is not None:
                 yield response
 
-    def get_message(self, ignore_subscribe_messages=False):
-        "Get the next message if one is available, otherwise None"
-        response = self.parse_response(block=False)
+    def get_message(self, ignore_subscribe_messages=False, timeout=0):
+        """
+        Get the next message if one is available, otherwise None.
+
+        If timeout is specified, the system will wait for `timeout` seconds
+        before returning. Timeout should be specified as a floating point
+        number.
+        """
+        response = self.parse_response(block=False, timeout=timeout)
         if response:
             return self.handle_message(response, ignore_subscribe_messages)
         return None
@@ -2294,8 +2300,8 @@ class PubSub(object):
                     return
                 self._running = True
                 while self._running and pubsub.subscribed:
-                    pubsub.get_message(ignore_subscribe_messages=True)
-                    mod_time.sleep(sleep_time)
+                    pubsub.get_message(ignore_subscribe_messages=True,
+                                       timeout=sleep_time)
 
             def stop(self):
                 self._running = False

@@ -36,16 +36,27 @@ if HIREDIS_AVAILABLE:
     hiredis_version = StrictVersion(hiredis.__version__)
     HIREDIS_SUPPORTS_CALLABLE_ERRORS = \
         hiredis_version >= StrictVersion('0.1.3')
+    HIREDIS_SUPPORTS_BYTE_BUFFER = \
+        hiredis_version >= StrictVersion('0.1.4')
 
-    if not HIREDIS_SUPPORTS_CALLABLE_ERRORS:
-        msg = ("redis-py works best with hiredis >= 0.1.3. You're running "
+    if not HIREDIS_SUPPORTS_BYTE_BUFFER:
+        msg = ("redis-py works best with hiredis >= 0.1.4. You're running "
                "hiredis %s. Please consider upgrading." % hiredis.__version__)
         warnings.warn(msg)
+
+    HIREDIS_USE_BYTE_BUFFER = True
+    # only use byte buffer if hiredis supports it and the Python version
+    # is >= 2.7
+    if not HIREDIS_SUPPORTS_BYTE_BUFFER or (
+            sys.version_info[0] == 2 and sys.version_info[1] < 7):
+        HIREDIS_USE_BYTE_BUFFER = False
 
 SYM_STAR = b('*')
 SYM_DOLLAR = b('$')
 SYM_CRLF = b('\r\n')
 SYM_EMPTY = b('')
+
+SERVER_CLOSED_CONNECTION_ERROR = "Connection closed by server."
 
 
 class Token(object):
@@ -109,7 +120,7 @@ class SocketBuffer(object):
                 data = self._sock.recv(socket_read_size)
                 # an empty string indicates the server shutdown the socket
                 if isinstance(data, bytes) and len(data) == 0:
-                    raise socket.error("Connection closed by remote server.")
+                    raise socket.error(SERVER_CLOSED_CONNECTION_ERROR)
                 buf.write(data)
                 data_length = len(data)
                 self.bytes_written += data_length
@@ -212,7 +223,7 @@ class PythonParser(BaseParser):
     def read_response(self):
         response = self._buffer.readline()
         if not response:
-            raise ConnectionError("Socket closed on remote end")
+            raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
 
         byte, response = byte_to_chr(response[0]), response[1:]
 
@@ -263,6 +274,9 @@ class HiredisParser(BaseParser):
             raise RedisError("Hiredis is not installed")
         self.socket_read_size = socket_read_size
 
+        if HIREDIS_USE_BYTE_BUFFER:
+            self._buffer = bytearray(socket_read_size)
+
     def __del__(self):
         try:
             self.on_disconnect()
@@ -292,7 +306,7 @@ class HiredisParser(BaseParser):
 
     def can_read(self):
         if not self._reader:
-            raise ConnectionError("Socket closed on remote end")
+            raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
 
         if self._next_response is False:
             self._next_response = self._reader.gets()
@@ -300,7 +314,7 @@ class HiredisParser(BaseParser):
 
     def read_response(self):
         if not self._reader:
-            raise ConnectionError("Socket closed on remote end")
+            raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
 
         # _next_response might be cached from a can_read() call
         if self._next_response is not False:
@@ -312,23 +326,34 @@ class HiredisParser(BaseParser):
         socket_read_size = self.socket_read_size
         while response is False:
             try:
-                buffer = self._sock.recv(socket_read_size)
-                # an empty string indicates the server shutdown the socket
-                if isinstance(buffer, bytes) and len(buffer) == 0:
-                    raise socket.error("Connection closed by remote server.")
+                if HIREDIS_USE_BYTE_BUFFER:
+                    bufflen = self._sock.recv_into(self._buffer)
+                    if bufflen == 0:
+                        raise socket.error(SERVER_CLOSED_CONNECTION_ERROR)
+                else:
+                    buffer = self._sock.recv(socket_read_size)
+                    # an empty string indicates the server shutdown the socket
+                    if not isinstance(buffer, bytes) or len(buffer) == 0:
+                        raise socket.error(SERVER_CLOSED_CONNECTION_ERROR)
             except socket.timeout:
                 raise TimeoutError("Timeout reading from socket")
             except socket.error:
                 e = sys.exc_info()[1]
                 raise ConnectionError("Error while reading from socket: %s" %
                                       (e.args,))
-            if not buffer:
-                raise ConnectionError("Socket closed on remote end")
-            self._reader.feed(buffer)
+            if HIREDIS_USE_BYTE_BUFFER:
+                self._reader.feed(self._buffer, 0, bufflen)
+            else:
+                self._reader.feed(buffer)
             # proactively, but not conclusively, check if more data is in the
             # buffer. if the data received doesn't end with \r\n, there's more.
-            if not buffer.endswith(SYM_CRLF):
-                continue
+            if HIREDIS_USE_BYTE_BUFFER:
+                if bufflen > 2 and \
+                        self._buffer[bufflen - 2:bufflen] != SYM_CRLF:
+                    continue
+            else:
+                if not buffer.endswith(SYM_CRLF):
+                    continue
             response = self._reader.gets()
         # if an older version of hiredis is installed, we need to attempt
         # to convert ResponseErrors to their appropriate types.
@@ -531,13 +556,14 @@ class Connection(object):
         "Pack and send a command to the Redis server"
         self.send_packed_command(self.pack_command(*args))
 
-    def can_read(self):
+    def can_read(self, timeout=0):
         "Poll the socket to see if there's data that can be read."
         sock = self._sock
         if not sock:
             self.connect()
             sock = self._sock
-        return bool(select([sock], [], [], 0)[0]) or self._parser.can_read()
+        return self._parser.can_read() or \
+            bool(select([sock], [], [], timeout)[0])
 
     def read_response(self):
         "Read the response from a previously sent command"
@@ -605,9 +631,9 @@ class Connection(object):
         buffer_length = 0
 
         for cmd in commands:
-            packed = self.pack_command(*cmd)[0]
-            pieces.append(packed)
-            buffer_length += len(packed)
+            for chunk in self.pack_command(*cmd):
+                pieces.append(chunk)
+                buffer_length += len(chunk)
 
             if buffer_length > 6000:
                 output.append(SYM_EMPTY.join(pieces))

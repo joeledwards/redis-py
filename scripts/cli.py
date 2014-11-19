@@ -4,13 +4,19 @@ import os
 import random
 import re
 import readline
-from redis import config
-from redis.exceptions import ResponseError
-import redis
 import shlex
 import sys
 import time
 import traceback
+
+script_path = os.path.abspath(os.path.realpath(__file__))
+script_dir = os.path.dirname(script_path)
+parent_dir = script_dir.rsplit("/", 1)[0]
+sys.path.insert(0, parent_dir)
+
+from redis import config
+from redis.exceptions import ResponseError
+import redis
 
 # Helper Functions /*{{{*/
 def trim_quotes(string):
@@ -230,6 +236,8 @@ class CommandLine: #/*{{{*/
         self.__add_action(Action("set", self.set).with_num_args(2).with_usage("<key> <value> - set string entry"))
         self.__add_action(Action("show", self.show).with_min_args(1).with_max_args(2).with_usage("<key> [field] - print value of this entry"))
         self.__add_action(Action("time", self.time).with_num_args(1).with_usage("<timestamp> - format the given timestamp"))
+        self.__add_action(Action("ttl", self.ttl).with_num_args(1).with_usage("<key> - return the TTL (time to live) in seconds for this key"))
+        self.__add_action(Action("ttls", self.ttls).with_num_args(1).with_usage("<key_expr> - return the TTLs (time to live) in seconds for all keys matching the expression"))
 
     def __add_action(self, action):
         self.actions[action.name] = action
@@ -492,6 +500,24 @@ class CommandLine: #/*{{{*/
             map_summary += "  [%s] PATH> %d\n" % (key, path_map[key])
         return map_summary + self.db.display_entries(keys)
 
+    def ttl(self, key):
+        ttl_seconds = self.db.redis().ttl(key)
+        if ttl_seconds is None:
+            if not self.db.redis().exists(key):
+                return "key '%s' doesn't exist" % key
+            return "key '%s' is not set to expire" % key
+        if ttl_seconds == -1:
+            return "key '%s' is not set to expire" % key
+        if ttl_seconds == -2:
+            return "key '%s' doesn't exist" % key
+        return "TTL for key '%s' is %d s" % (key, ttl_seconds)
+
+    def ttls(self, key_expr):
+        ttl_summary = ""
+        keys = self.db.redis().keys(key_expr)
+        for key in sorted(keys):
+            print " ", self.ttl(key)
+        return "Evaluated %d keys" % len(keys)
 #/*}}}*/
 
 def select_db(): #/*{{{*/
